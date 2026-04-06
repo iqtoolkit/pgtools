@@ -424,9 +424,185 @@ Phase 1 (fix CI)  →  Phase 2 (BATS tests)
 Phase 3 (CLI)     — can develop in parallel with Phase 2
        ↓
 Phase 4 (releases) — requires Phase 3 artifacts (bin/pgtools, VERSION)
+       ↓
+Phase 5 (script fixes) — can begin after Phase 1
+       ↓
+Phase 6 (missing scripts) — after Phase 3 CLI is stable
+       ↓
+Phase 7 (trending) — last, requires stable script layer
 ```
 
 Phase 1 is a hard prerequisite. Phases 2 and 3 can be developed in parallel branches. Phase 4 is last because it packages the output of everything before it. Do not cut a release until all four phases are merged and CI is fully green.
+
+---
+
+## Phase 5 — Script-Level Bug Fixes
+
+**Goal**: Fix correctness issues in existing SQL scripts identified during review.
+
+### Bugs to Fix
+
+| File | Issue | Fix |
+|------|-------|-----|
+| `monitoring/bloating.sql` line 98 | `WHERE n_dead_tup > 0` is commented out — returns tables with zero dead tuples, polluting output | Uncomment and raise threshold to `n_dead_tup > 1000` |
+| `optimization/missing_indexes.sql` FK detection | Cross-joins on `indexdef LIKE '%' || fk.column_name || '%'` — string match produces false positives (e.g. `user_id` matches `business_user_id`) | Rewrite using `pg_index` / `pg_attribute` join instead of string matching on `indexdef` |
+| All scripts | Insufficient privileges return empty result sets — looks like "no problems" instead of "cannot see data" | Add privilege check block at top of each script: query `has_table_privilege` or `pg_has_role` and `\warn` if insufficient, then exit cleanly |
+
+### Acceptance Criteria
+- [ ] `bloating.sql` only returns tables with meaningful dead tuple counts
+- [ ] `missing_indexes.sql` FK detection has zero false positives on a schema with overlapping column names
+- [ ] All scripts print a clear privilege warning and exit non-zero when run without required permissions
+
+---
+
+## Phase 6 — Missing Scripts
+
+**Goal**: Cover critical failure modes that have no script in the repo today.
+
+### New Files to Create
+
+**`monitoring/wraparound_risk.sql`** — dedicated XID age monitoring:
+```sql
+-- Database-level risk (cluster-wide view)
+SELECT datname,
+       age(datfrozenxid)                          AS xid_age,
+       2100000000 - age(datfrozenxid)             AS xids_remaining,
+       CASE
+           WHEN age(datfrozenxid) > 1500000000 THEN 'CRITICAL'
+           WHEN age(datfrozenxid) > 1000000000 THEN 'WARNING'
+           WHEN age(datfrozenxid) > 500000000  THEN 'MONITOR'
+           ELSE 'OK'
+       END AS risk_level
+FROM pg_database
+ORDER BY age(datfrozenxid) DESC;
+
+-- Table-level breakdown — find the table driving the age
+SELECT schemaname, relname,
+       age(relfrozenxid)                          AS table_xid_age,
+       pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) AS size,
+       last_autovacuum,
+       last_vacuum
+FROM pg_class
+JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
+WHERE relkind = 'r'
+ORDER BY age(relfrozenxid) DESC
+LIMIT 20;
+```
+
+Add `check-wraparound` command to `bin/pgtools` dispatcher.
+
+**`monitoring/replication_slots.sql`** — inactive slot WAL accumulation:
+
+Replication slots that have no active consumer hold WAL on disk indefinitely. `replication.sql` monitors lag on active standbys but does not alert on this failure mode.
+
+```sql
+SELECT slot_name,
+       slot_type,
+       active,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS retained_wal,
+       restart_lsn,
+       confirmed_flush_lsn,
+       CASE
+           WHEN active = false THEN 'DANGER: inactive slot holding WAL'
+           ELSE 'OK'
+       END AS status
+FROM pg_replication_slots
+ORDER BY active ASC, restart_lsn ASC;
+```
+
+Add `check-slots` command to `bin/pgtools` dispatcher.
+
+**`monitoring/pgbouncer_status.sql`** — PgBouncer pool health:
+
+Most production deployments use PgBouncer. None of the existing scripts surface pooler state. This script connects to the PgBouncer admin database (`pgbouncer`) and queries `SHOW POOLS`, `SHOW STATS`, and `SHOW CLIENTS`.
+
+Note: requires a separate psql connection to the PgBouncer admin port (default 6432). Add `pgtools check-pooler --host pgbouncer-host --port 6432` command.
+
+**`troubleshooting/triage_runbook.sql`** — unified triage sequence:
+
+The three query packs (`query_pack_01/02/03`) have no documented order of use. Replace with a single file that encodes the triage sequence explicitly:
+
+1. Long-running queries (`pg_stat_activity` by duration)
+2. Blocking chain (self-join on `pg_locks WHERE NOT granted`)
+3. Wait events (`pg_stat_activity WHERE wait_event IS NOT NULL`)
+4. Autovacuum state (`pg_stat_user_tables` by `n_dead_tup`)
+5. Checkpoint pressure (`pg_stat_bgwriter` ratios)
+6. XID age (`age(datfrozenxid)` across databases)
+
+### CLI Additions
+
+Add to `bin/pgtools` dispatcher:
+```bash
+check-wraparound) run_sql "$PGTOOLS_ROOT/monitoring/wraparound_risk.sql" "$@" ;;
+check-slots)      run_sql "$PGTOOLS_ROOT/monitoring/replication_slots.sql" "$@" ;;
+triage)           run_sql "$PGTOOLS_ROOT/troubleshooting/triage_runbook.sql" "$@" ;;
+```
+
+### Acceptance Criteria
+- [ ] `pgtools check-wraparound` surfaces all databases including `template0/template1`
+- [ ] `pgtools check-slots` flags inactive slots with retained WAL size
+- [ ] `pgtools triage` runs all 6 steps in order and exits 0
+- [ ] BATS tests cover all three new scripts (Phase 2 test files updated)
+
+---
+
+## Phase 7 — Trending and Baselines
+
+**Goal**: Shift from point-in-time snapshots to time-series data so metrics are meaningful relative to a baseline. This is the difference between a DBA toolkit and an observability platform.
+
+### Problem
+
+Every script in the repo gives you the state right now. `checkpoints_req = 47` means nothing without knowing if that number is from the last 5 minutes or the last 5 days. `cache_hit_ratio = 94%` looks fine until you know it was 99% yesterday.
+
+### Design
+
+A lightweight schema written to a dedicated monitoring database (or a `pgtools` schema in the target database). A cron job or `pg_cron` entry captures snapshots on a schedule. Scripts compare current values to the rolling baseline.
+
+**`monitoring/schema/pgtools_schema.sql`** — creates the capture schema:
+```sql
+CREATE SCHEMA IF NOT EXISTS pgtools_monitoring;
+
+CREATE TABLE IF NOT EXISTS pgtools_monitoring.snapshots (
+    captured_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    metric_name         TEXT NOT NULL,
+    metric_value        NUMERIC,
+    metric_text         TEXT,
+    labels              JSONB
+) PARTITION BY RANGE (captured_at);
+
+-- Retention: 30 days of snapshots
+CREATE INDEX ON pgtools_monitoring.snapshots (metric_name, captured_at DESC);
+```
+
+**`monitoring/capture_snapshot.sql`** — inserts current metric values into the schema. Captures:
+- `checkpoints_req` / `checkpoints_timed` ratio
+- `cache_hit_ratio` per database
+- `age(datfrozenxid)` per database
+- Connection count vs `max_connections`
+- Dead tuple ratio for top 20 tables by dead tuple count
+
+**`monitoring/trending_report.sql`** — compares current snapshot to 24h and 7d rolling averages. Flags metrics that have degraded by more than 10% from their baseline.
+
+**`automation/capture_metrics.sh`** — shell wrapper for `pg_cron` or system cron:
+```bash
+#!/bin/bash
+# Add to crontab: */15 * * * * /usr/local/share/pgtools/automation/capture_metrics.sh
+psql -f "$PGTOOLS_ROOT/monitoring/capture_snapshot.sql" "$@"
+```
+
+### CLI Additions
+```bash
+init-monitoring)  run_sql "$PGTOOLS_ROOT/monitoring/schema/pgtools_schema.sql" "$@" ;;
+capture)          run_sql "$PGTOOLS_ROOT/monitoring/capture_snapshot.sql" "$@" ;;
+trending)         run_sql "$PGTOOLS_ROOT/monitoring/trending_report.sql" "$@" ;;
+```
+
+### Acceptance Criteria
+- [ ] `pgtools init-monitoring` creates the schema idempotently
+- [ ] `pgtools capture` runs without error and inserts rows
+- [ ] `pgtools trending` produces output after at least 2 captures
+- [ ] Schema uses partitioning so old snapshots can be dropped without locking
+- [ ] BATS test: capture twice, assert `trending` report runs without error
 
 ---
 
