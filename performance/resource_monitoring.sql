@@ -110,33 +110,23 @@ SELECT * FROM _pgtools_bufcache;
 
 -- Connection and process analysis
 \echo '--- CONNECTION AND PROCESS ANALYSIS ---'
-SELECT 
-    'Total Connections' as metric,
-    COUNT(*) as current_value,
-    (SELECT setting FROM pg_settings WHERE name = 'max_connections') as max_configured,
-    ROUND(100.0 * COUNT(*) / (SELECT setting FROM pg_settings WHERE name = 'max_connections')::int, 2) as percent_used
-FROM pg_stat_activity
-UNION ALL
-SELECT 
-    'Active Connections',
-    COUNT(*),
-    (SELECT setting FROM pg_settings WHERE name = 'max_connections'),
-    ROUND(100.0 * COUNT(*) / (SELECT setting FROM pg_settings WHERE name = 'max_connections')::int, 2)
-FROM pg_stat_activity WHERE state = 'active'
-UNION ALL
-SELECT 
-    'Idle Connections',
-    COUNT(*),
-    (SELECT setting FROM pg_settings WHERE name = 'max_connections'),
-    ROUND(100.0 * COUNT(*) / (SELECT setting FROM pg_settings WHERE name = 'max_connections')::int, 2)
-FROM pg_stat_activity WHERE state = 'idle'
-UNION ALL
-SELECT 
-    'Idle in Transaction',
-    COUNT(*),
-    (SELECT setting FROM pg_settings WHERE name = 'max_connections'),
-    ROUND(100.0 * COUNT(*) / (SELECT setting FROM pg_settings WHERE name = 'max_connections')::int, 2)
-FROM pg_stat_activity WHERE state = 'idle in transaction';
+WITH conn_summary AS (
+    SELECT
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE state = 'active') AS active,
+        COUNT(*) FILTER (WHERE state = 'idle') AS idle,
+        COUNT(*) FILTER (WHERE state = 'idle in transaction') AS idle_in_txn,
+        (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_conn
+    FROM pg_stat_activity
+)
+SELECT
+    total        AS total_connections,
+    active       AS active_connections,
+    idle         AS idle_connections,
+    idle_in_txn  AS idle_in_transaction,
+    max_conn     AS max_configured,
+    ROUND(100.0 * total / max_conn, 2) AS percent_used
+FROM conn_summary;
 
 \echo ''
 
