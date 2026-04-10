@@ -80,50 +80,53 @@ ORDER BY bytes_value DESC NULLS LAST;
 
 \echo ''
 
--- Buffer cache analysis
+-- Buffer cache analysis (requires pg_buffercache extension)
 \echo '--- BUFFER CACHE ANALYSIS ---'
-SELECT 
-    CASE 
-        WHEN category = 'buffer content' THEN category || ' (' || name || ')'
-        ELSE category
-    END as resource_type,
-    buffers,
-    pg_size_pretty(buffers * 8192) as size,
-    ROUND(100.0 * buffers / (SELECT setting FROM pg_settings WHERE name = 'shared_buffers')::int, 2) as percent_of_shared_buffers
-FROM pg_buffercache_summary()
-ORDER BY buffers DESC;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_buffercache') THEN
+        RAISE NOTICE 'pg_buffercache extension not installed — skipping buffer cache analysis';
+        RAISE NOTICE 'Install with: CREATE EXTENSION pg_buffercache;';
+        RETURN;
+    END IF;
+
+    -- Use a temp table so we can display from plain SQL after the DO block
+    CREATE TEMP TABLE IF NOT EXISTS _pgtools_bufcache ON COMMIT DROP AS
+    SELECT 
+        CASE 
+            WHEN category = 'buffer content' THEN category || ' (' || name || ')'
+            ELSE category
+        END as resource_type,
+        buffers,
+        pg_size_pretty(buffers * 8192) as size,
+        ROUND(100.0 * buffers / (SELECT setting FROM pg_settings WHERE name = 'shared_buffers')::int, 2) as percent_of_shared_buffers
+    FROM pg_buffercache_summary()
+    ORDER BY buffers DESC;
+END
+$$;
+SELECT * FROM _pgtools_bufcache;
 
 \echo ''
 
 -- Connection and process analysis
 \echo '--- CONNECTION AND PROCESS ANALYSIS ---'
-SELECT 
-    'Total Connections' as metric,
-    COUNT(*) as current_value,
-    (SELECT setting FROM pg_settings WHERE name = 'max_connections') as max_configured,
-    ROUND(100.0 * COUNT(*) / (SELECT setting FROM pg_settings WHERE name = 'max_connections')::int, 2) as percent_used
-FROM pg_stat_activity
-UNION ALL
-SELECT 
-    'Active Connections',
-    COUNT(*),
-    (SELECT setting FROM pg_settings WHERE name = 'max_connections'),
-    ROUND(100.0 * COUNT(*) / (SELECT setting FROM pg_settings WHERE name = 'max_connections')::int, 2)
-FROM pg_stat_activity WHERE state = 'active'
-UNION ALL
-SELECT 
-    'Idle Connections',
-    COUNT(*),
-    (SELECT setting FROM pg_settings WHERE name = 'max_connections'),
-    ROUND(100.0 * COUNT(*) / (SELECT setting FROM pg_settings WHERE name = 'max_connections')::int, 2)
-FROM pg_stat_activity WHERE state = 'idle'
-UNION ALL
-SELECT 
-    'Idle in Transaction',
-    COUNT(*),
-    (SELECT setting FROM pg_settings WHERE name = 'max_connections'),
-    ROUND(100.0 * COUNT(*) / (SELECT setting FROM pg_settings WHERE name = 'max_connections')::int, 2)
-FROM pg_stat_activity WHERE state = 'idle in transaction';
+WITH conn_summary AS (
+    SELECT
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE state = 'active') AS active,
+        COUNT(*) FILTER (WHERE state = 'idle') AS idle,
+        COUNT(*) FILTER (WHERE state = 'idle in transaction') AS idle_in_txn,
+        (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_conn
+    FROM pg_stat_activity
+)
+SELECT
+    total        AS total_connections,
+    active       AS active_connections,
+    idle         AS idle_connections,
+    idle_in_txn  AS idle_in_transaction,
+    max_conn     AS max_configured,
+    ROUND(100.0 * total / max_conn, 2) AS percent_used
+FROM conn_summary;
 
 \echo ''
 
@@ -157,8 +160,8 @@ ORDER BY blks_read + blks_hit DESC;
 SELECT 
     schemaname,
     tablename,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as total_size,
-    pg_total_relation_size(schemaname||'.'||tablename) as size_bytes,
+    pg_size_pretty(pg_total_relation_size(format('%I.%I', schemaname, tablename))) as total_size,
+    pg_total_relation_size(format('%I.%I', schemaname, tablename)) as size_bytes,
     heap_blks_read,
     heap_blks_hit,
     ROUND(100.0 * heap_blks_hit / NULLIF(heap_blks_hit + heap_blks_read, 0), 2) as cache_hit_ratio,
@@ -171,7 +174,7 @@ SELECT
     idx_tup_fetch
 FROM pg_statio_user_tables 
 WHERE heap_blks_read + heap_blks_hit > 0
-ORDER BY heap_blks_read + heap_blks_hit + idx_blks_read + idx_blks_hit DESC
+ORDER BY heap_blks_read + heap_blks_hit + idx_blks_read + idx_blks_hit DESC NULLS LAST
 LIMIT 20;
 
 \echo ''
@@ -182,7 +185,7 @@ SELECT
     schemaname,
     tablename,
     indexname,
-    pg_size_pretty(pg_relation_size(schemaname||'.'||indexname)) as index_size,
+    pg_size_pretty(pg_relation_size(format('%I.%I', schemaname, indexname))) as index_size,
     idx_scan as times_used,
     idx_tup_read as tuples_read,
     idx_tup_fetch as tuples_fetched,
@@ -194,11 +197,11 @@ SELECT
     END as usage_category,
     CASE
         WHEN idx_scan = 0 THEN 'Consider dropping if confirmed unused'
-        WHEN idx_scan < 10 AND pg_relation_size(schemaname||'.'||indexname) > 10*1024*1024 THEN 'Large rarely used index'
+        WHEN idx_scan < 10 AND pg_relation_size(format('%I.%I', schemaname, indexname)) > 10*1024*1024 THEN 'Large rarely used index'
         ELSE 'Normal usage'
     END as recommendation
 FROM pg_stat_user_indexes 
-ORDER BY pg_relation_size(schemaname||'.'||indexname) DESC
+ORDER BY pg_relation_size(format('%I.%I', schemaname, indexname)) DESC
 LIMIT 25;
 
 \echo ''
@@ -216,59 +219,25 @@ SELECT
     'Configured WAL buffer size'
 UNION ALL
 SELECT 
-    'Checkpoint Segments',
-    (SELECT setting FROM pg_settings WHERE name = 'checkpoint_segments'),
-    'WAL segments between checkpoints (if applicable)'
-UNION ALL  
-SELECT 
     'Max WAL Size',
     (SELECT setting FROM pg_settings WHERE name = 'max_wal_size'),
     'Maximum size to let WAL grow during automatic checkpoints';
 
 \echo ''
 
--- Background writer and checkpointer stats
+-- Background writer, checkpointer, and checkpoint pressure stats
 \echo '--- BACKGROUND WRITER STATISTICS ---'
-SELECT 
-    'Checkpoints Timed' as statistic,
-    checkpoints_timed as value,
-    'Scheduled checkpoints' as description
-FROM pg_stat_bgwriter
-UNION ALL
-SELECT 
-    'Checkpoints Requested',
+SELECT
+    checkpoints_timed,
     checkpoints_req,
-    'Requested checkpoints (may indicate tuning needed)'
-FROM pg_stat_bgwriter
-UNION ALL
-SELECT 
-    'Checkpoint Write Time (ms)',
+    round(checkpoints_req::numeric / nullif(checkpoints_timed + checkpoints_req, 0) * 100, 2) AS req_pct,
     checkpoint_write_time,
-    'Time spent writing files during checkpoint'
-FROM pg_stat_bgwriter
-UNION ALL
-SELECT 
-    'Checkpoint Sync Time (ms)',
     checkpoint_sync_time,
-    'Time spent syncing files during checkpoint'
-FROM pg_stat_bgwriter
-UNION ALL
-SELECT 
-    'Buffers Checkpoint',
     buffers_checkpoint,
-    'Buffers written during checkpoints'
-FROM pg_stat_bgwriter
-UNION ALL
-SELECT 
-    'Buffers Clean',
     buffers_clean,
-    'Buffers written by background writer'
-FROM pg_stat_bgwriter
-UNION ALL
-SELECT 
-    'Buffers Backend',
     buffers_backend,
-    'Buffers written directly by backends'
+    maxwritten_clean,
+    buffers_backend_fsync
 FROM pg_stat_bgwriter;
 
 \echo ''
