@@ -1,0 +1,270 @@
+No need to apologize — switching topics is normal, and it's useful context that iqtoolkit.ai is a real thing you're building on, not just a GitHub org name. The `.ai` domain plus projects suggests you're serious about it as an identity, which makes `gmartinez-dbai` fit even better — the personal handle echoes the org's AI framing without being redundant.
+
+Let me give you the cheatsheet. I'll organize it by the categories I mentioned before so you can use it as a quick reference when tickets come in.
+
+## Chunk health
+
+```sql
+-- Chunk count and size per hypertable (your #1 triage query)
+SELECT 
+  hypertable_name,
+  count(*) AS chunk_count,
+  pg_size_pretty(sum(total_bytes)) AS total_size,
+  pg_size_pretty(avg(total_bytes)::bigint) AS avg_chunk_size,
+  pg_size_pretty(min(total_bytes)) AS min_chunk,
+  pg_size_pretty(max(total_bytes)) AS max_chunk
+FROM timescaledb_information.chunks
+GROUP BY hypertable_name
+ORDER BY chunk_count DESC;
+```
+
+Red flags: chunk counts over ~500 per hypertable, huge variance between min and max chunk size, or average chunk size wildly off from the ideal (rule of thumb: chunks should fit in ~25% of `shared_buffers` for the hot set).
+
+```sql
+-- Chunk time interval - is it set sanely?
+SELECT 
+  hypertable_name,
+  time_interval,
+  integer_interval,
+  num_dimensions
+FROM timescaledb_information.dimensions;
+```
+
+If `time_interval` is `1 day` but they're ingesting 100GB/day, chunks are too big. If it's `1 hour` and they're ingesting 100MB/day, chunks are too small and they've got chunk count runaway. Use `set_chunk_time_interval()` to fix going forward (doesn't reshape existing chunks).
+
+## Compression diagnostics
+
+```sql
+-- Is compression even configured? And are policies running?
+SELECT 
+  ht.hypertable_name,
+  cs.segmentby,
+  cs.orderby,
+  j.job_id,
+  j.schedule_interval,
+  js.last_run_status,
+  js.last_successful_finish,
+  js.total_failures
+FROM timescaledb_information.hypertables ht
+LEFT JOIN timescaledb_information.compression_settings cs 
+  ON cs.hypertable_name = ht.hypertable_name
+LEFT JOIN timescaledb_information.jobs j 
+  ON j.hypertable_name = ht.hypertable_name 
+  AND j.proc_name = 'policy_compression'
+LEFT JOIN timescaledb_information.job_stats js 
+  ON js.job_id = j.job_id;
+```
+
+Common finding: `segmentby` is NULL or wrong. `segmentby` should match the high-cardinality column you filter on (device_id, user_id, etc.). If it's wrong, you get bad compression ratios AND slow queries because decompression can't skip segments.
+
+```sql
+-- Compression effectiveness
+SELECT 
+  hypertable_name,
+  pg_size_pretty(before_compression_total_bytes) AS before,
+  pg_size_pretty(after_compression_total_bytes) AS after,
+  round(
+    100.0 * (1 - after_compression_total_bytes::numeric 
+             / NULLIF(before_compression_total_bytes, 0)), 
+    1
+  ) AS compression_pct
+FROM hypertable_compression_stats();
+```
+
+Healthy time-series data typically compresses 90%+. If you see <70%, the `segmentby`/`orderby` is probably misconfigured.
+
+```sql
+-- Chunks that should be compressed but aren't
+SELECT 
+  hypertable_name,
+  chunk_name,
+  range_end,
+  pg_size_pretty(total_bytes) AS size,
+  is_compressed
+FROM timescaledb_information.chunks
+WHERE NOT is_compressed 
+  AND range_end < now() - INTERVAL '1 day'  -- adjust to their policy interval
+ORDER BY range_end;
+```
+
+If this returns a lot of rows, compression is falling behind — usually background worker exhaustion.
+
+## Continuous aggregates
+
+```sql
+-- CAGG health overview
+SELECT 
+  view_name,
+  materialization_hypertable_name,
+  compression_enabled,
+  materialized_only,
+  finalized
+FROM timescaledb_information.continuous_aggregates;
+```
+
+```sql
+-- Is the refresh policy keeping up?
+SELECT 
+  ca.view_name,
+  j.job_id,
+  j.schedule_interval,
+  js.last_run_status,
+  js.last_successful_finish,
+  now() - js.last_successful_finish AS time_since_refresh,
+  js.total_failures,
+  js.total_successes
+FROM timescaledb_information.continuous_aggregates ca
+JOIN timescaledb_information.jobs j 
+  ON j.hypertable_name = ca.materialization_hypertable_name
+  AND j.proc_name = 'policy_refresh_continuous_aggregate'
+LEFT JOIN timescaledb_information.job_stats js ON js.job_id = j.job_id;
+```
+
+If `time_since_refresh` is way larger than `schedule_interval`, the CAGG is stale. Dashboards are showing old data.
+
+```sql
+-- What's the actual lag? (How far behind "now" is the materialized data?)
+SELECT 
+  ca.view_name,
+  ca.materialization_hypertable_schema || '.' || ca.materialization_hypertable_name 
+    AS materialization,
+  max_time 
+FROM timescaledb_information.continuous_aggregates ca,
+LATERAL (
+  SELECT max(time_bucket_value) AS max_time 
+  FROM <the view itself — you'll need to substitute>
+) t;
+```
+
+This one needs per-CAGG customization because the time column name varies, but the idea is: max time in the CAGG vs now tells you real-world staleness, not just policy health.
+
+## Background jobs (the silent killer)
+
+```sql
+-- Global job failure overview
+SELECT 
+  proc_name,
+  hypertable_name,
+  last_run_status,
+  last_successful_finish,
+  total_failures,
+  total_successes,
+  last_run_duration
+FROM timescaledb_information.job_stats
+WHERE total_failures > 0 OR last_run_status != 'Success'
+ORDER BY total_failures DESC;
+```
+
+```sql
+-- Recent job errors with actual error messages
+SELECT 
+  job_id,
+  proc_schema,
+  proc_name,
+  pid,
+  start_time,
+  finish_time,
+  sqlerrcode,
+  err_message
+FROM timescaledb_information.job_errors
+ORDER BY start_time DESC
+LIMIT 50;
+```
+
+```sql
+-- Are background workers saturated?
+SHOW timescaledb.max_background_workers;
+SHOW max_worker_processes;
+
+-- And how many are currently in use by Timescale?
+SELECT count(*) 
+FROM pg_stat_activity 
+WHERE application_name LIKE '%TimescaleDB Background Worker%';
+```
+
+If `max_background_workers` is 8 and you count 8 active, the pool is saturated and policies are queueing. Bump it (and `max_worker_processes` correspondingly) and restart.
+
+## Query planning and pushdown
+
+```sql
+-- Is chunk exclusion working on a query?
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS)
+SELECT ...;
+```
+
+What to look for:
+- Number of chunks scanned vs. total — if it's scanning all chunks on a time-filtered query, chunk exclusion isn't working (usually means the WHERE clause isn't using the partitioning column directly, or there's a function call wrapping it)
+- `DecompressChunk` nodes — indicates rowstore execution on compressed data
+- `Custom Scan (ColumnarScan)` or `Custom Scan (VectorAgg)` — indicates the fast columnar path
+- `Hypertable` node showing filter pushdown
+
+Common pushdown-breaking patterns: `WHERE date_trunc('day', time) = ...` instead of `WHERE time >= ... AND time < ...`; joining on a non-partitioning column before filtering; using `OR` across hypertable and non-hypertable conditions.
+
+## Tiger Lake (when customers start using it)
+
+```sql
+-- Is replication flowing?
+SELECT 
+  slot_name,
+  plugin,
+  slot_type,
+  active,
+  restart_lsn,
+  pg_size_pretty(
+    pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)
+  ) AS lag_bytes
+FROM pg_replication_slots
+WHERE slot_name LIKE '%tigerlake%' OR plugin LIKE '%iceberg%';
+```
+
+Growing `lag_bytes` that doesn't come back down means replication is stuck — check for long-running CAGG refreshes on the source hypertable (the known interaction).
+
+## Connection and workload
+
+```sql
+-- Who's doing what right now
+SELECT 
+  pid,
+  usename,
+  application_name,
+  state,
+  wait_event_type,
+  wait_event,
+  now() - query_start AS runtime,
+  left(query, 200) AS query
+FROM pg_stat_activity
+WHERE state != 'idle'
+  AND pid != pg_backend_pid()
+ORDER BY query_start;
+```
+
+```sql
+-- Top queries by total time (need pg_stat_statements enabled)
+SELECT 
+  calls,
+  round(total_exec_time::numeric, 2) AS total_ms,
+  round(mean_exec_time::numeric, 2) AS mean_ms,
+  round((100 * total_exec_time 
+    / sum(total_exec_time) OVER ())::numeric, 2) AS pct,
+  left(query, 150) AS query
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 20;
+```
+
+## The "customer says it's slow" triage flow
+
+Rough order of investigation when someone opens a vague performance ticket:
+
+1. Chunk count per hypertable. Planning overhead is the most common silent cause.
+2. `pg_stat_statements` top queries. Find out what's actually slow.
+3. EXPLAIN on the slow query. Is chunk exclusion working? Is it hitting columnstore?
+4. Compression stats. Is old data still uncompressed?
+5. Job stats. Are policies behind?
+6. `pg_stat_activity` during a slow period. What's actually happening live?
+7. WAL and replication lag. Anything backing up at the replication layer?
+8. Connection count and pooler config. Are they even using a pooler?
+
+One last tip: save these as snippets in whatever you use (VS Code, Alfred, a gist, Raycast, whatever). You'll run them dozens of times a week, and having them one keystroke away is the difference between taking 20 minutes or 2 minutes per ticket.
+
+Want me to go deeper on any specific area — Hypercore API internals, the CAGG refresh policy options in detail, or how to read EXPLAIN output on hypertable queries specifically?
