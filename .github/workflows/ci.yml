@@ -10,6 +10,10 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: [14, 15, 16, 17, 18]
     env:
       PGHOST: localhost
       PGPORT: 5432
@@ -18,7 +22,7 @@ jobs:
       PGPASSWORD: postgres
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.postgres_version }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -34,6 +38,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Show PostgreSQL version under test
+        run: echo "Running CI against PostgreSQL ${{ matrix.postgres_version }}"
 
       - name: Install dependencies
         run: |
