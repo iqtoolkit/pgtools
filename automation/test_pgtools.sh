@@ -150,17 +150,17 @@ run_test() {
         return 0
     fi
     
-    ((TESTS_RUN++))
-    
+    TESTS_RUN=$((TESTS_RUN + 1))
+
     if [[ "$VERBOSE" == "true" ]]; then
         log "Running test: $test_name"
     fi
-    
+
     if $test_function; then
-        ((TESTS_PASSED++))
+        TESTS_PASSED=$((TESTS_PASSED + 1))
         success "✓ $test_name"
     else
-        ((TESTS_FAILED++))
+        TESTS_FAILED=$((TESTS_FAILED + 1))
         error "✗ $test_name"
     fi
 }

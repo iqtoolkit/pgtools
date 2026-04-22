@@ -440,7 +440,7 @@ process_vacuum() {
     local count=0
     while IFS=$'\t' read -r schema table dead_tuples live_tuples dead_ratio size _last_vacuum _last_autovacuum; do
         [[ -z "$schema" ]] && continue
-        ((count++))
+        count=$((count + 1))
         
         local reason="Dead tuples: ${dead_ratio}%"
         if [[ "$VERBOSE" == "true" ]]; then
@@ -474,7 +474,7 @@ process_analyze() {
     local count=0
     while IFS=$'\t' read -r schema table total_changes size _last_analyze _last_autoanalyze priority; do
         [[ -z "$schema" ]] && continue
-        ((count++))
+        count=$((count + 1))
         
         local reason="Priority: $priority"
         if [[ "$VERBOSE" == "true" ]]; then
