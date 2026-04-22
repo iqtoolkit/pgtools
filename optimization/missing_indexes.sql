@@ -149,7 +149,9 @@ ORDER BY
 -- Query patterns analysis (requires pg_stat_statements)
 -- This helps identify frequently used WHERE conditions that might benefit from indexes
 SELECT CASE
-    WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') THEN 1
+    WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')
+         AND current_setting('shared_preload_libraries', true) LIKE '%pg_stat_statements%'
+    THEN 1
     ELSE 0
 END AS has_pg_stat_statements
 \gset
@@ -191,8 +193,9 @@ ORDER BY
     calls DESC
 LIMIT 20;
 \else
-\echo 'Skipping query pattern analysis: pg_stat_statements extension is not installed.'
-\echo 'Need to install extension pg_stat_statements.'
+\echo 'Skipping query pattern analysis: pg_stat_statements is unavailable in this server runtime.'
+\echo 'Need to install extension pg_stat_statements and load it via shared_preload_libraries.'
+\echo 'Set shared_preload_libraries = ''pg_stat_statements'' and restart PostgreSQL.'
 \echo 'Install with: CREATE EXTENSION pg_stat_statements;'
 \endif
 
