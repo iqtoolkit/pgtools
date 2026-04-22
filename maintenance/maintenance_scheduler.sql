@@ -38,11 +38,11 @@ ORDER BY name;
 \echo '--- TABLES REQUIRING VACUUM ---'
 SELECT 
     schemaname,
-    tablename,
+    relname,
     n_dead_tup as dead_tuples,
     n_live_tup as live_tuples,
     ROUND(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) as dead_tuple_percentage,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as table_size,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as table_size,
     last_vacuum,
     last_autovacuum,
     CASE 
@@ -52,8 +52,8 @@ SELECT
         ELSE 'LOW'
     END as vacuum_priority,
     CASE 
-        WHEN pg_total_relation_size(schemaname||'.'||tablename) > 10 * 1024^3 THEN 'LARGE_TABLE'
-        WHEN pg_total_relation_size(schemaname||'.'||tablename) > 1024^3 THEN 'MEDIUM_TABLE'
+        WHEN pg_total_relation_size(schemaname||'.'||relname) > 10 * 1024^3 THEN 'LARGE_TABLE'
+        WHEN pg_total_relation_size(schemaname||'.'||relname) > 1024^3 THEN 'MEDIUM_TABLE'
         ELSE 'SMALL_TABLE'
     END as size_category
 FROM pg_stat_user_tables
@@ -73,7 +73,7 @@ ORDER BY
 \echo '--- TABLES REQUIRING ANALYZE ---'
 SELECT 
     schemaname,
-    tablename,
+    relname,
     n_tup_ins + n_tup_upd + n_tup_del as total_modifications,
     n_live_tup as live_tuples,
     ROUND(100.0 * (n_tup_ins + n_tup_upd + n_tup_del) / NULLIF(n_live_tup, 0), 2) as modification_percentage,
@@ -112,7 +112,7 @@ ORDER BY
 WITH index_bloat AS (
     SELECT 
         schemaname,
-        tablename,
+        relname,
         indexname,
         pg_size_pretty(pg_relation_size(schemaname||'.'||indexname)) as index_size,
         pg_relation_size(schemaname||'.'||indexname) as index_size_bytes,
@@ -130,7 +130,7 @@ WITH index_bloat AS (
 )
 SELECT 
     schemaname,
-    tablename,
+    relname,
     indexname,
     index_size,
     idx_scan as times_used,
@@ -159,10 +159,10 @@ WITH maintenance_workload AS (
              AND (n_tup_ins + n_tup_upd + n_tup_del) > 1000) OR
             ((n_tup_ins + n_tup_upd + n_tup_del) > n_live_tup * 0.1)
         ) as tables_need_analyze,
-        SUM(pg_total_relation_size(schemaname||'.'||tablename)) FILTER (
+        SUM(pg_total_relation_size(schemaname||'.'||relname)) FILTER (
             WHERE n_dead_tup > GREATEST(n_live_tup * 0.1, 1000)
         ) as vacuum_data_size,
-        SUM(pg_total_relation_size(schemaname||'.'||tablename)) FILTER (
+        SUM(pg_total_relation_size(schemaname||'.'||relname)) FILTER (
             WHERE (last_analyze IS NULL AND last_autoanalyze IS NULL) OR
                   (GREATEST(COALESCE(last_analyze, '1900-01-01'), COALESCE(last_autoanalyze, '1900-01-01')) < NOW() - INTERVAL '7 days' 
                    AND (n_tup_ins + n_tup_upd + n_tup_del) > 1000) OR
@@ -190,7 +190,7 @@ FROM maintenance_workload;
 \echo '--- AUTOVACUUM EFFECTIVENESS ANALYSIS ---'
 SELECT 
     schemaname,
-    tablename,
+    relname,
     n_dead_tup,
     ROUND(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) as dead_percentage,
     last_vacuum,
@@ -201,7 +201,7 @@ SELECT
         WHEN n_dead_tup > n_live_tup * 0.3 THEN 'NEEDS_TUNING'
         ELSE 'OK'
     END as autovacuum_effectiveness,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as table_size
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as table_size
 FROM pg_stat_user_tables
 WHERE n_dead_tup > 1000
 ORDER BY n_dead_tup DESC
@@ -272,7 +272,7 @@ FROM maintenance_analysis;
 \echo ''
 \echo 'Manual VACUUM commands for urgent tables:'
 
-SELECT 'VACUUM (VERBOSE, ANALYZE) ' || schemaname || '.' || tablename || ';' as vacuum_command
+SELECT 'VACUUM (VERBOSE, ANALYZE) ' || schemaname || '.' || relname || ';' as vacuum_command
 FROM pg_stat_user_tables
 WHERE n_dead_tup > GREATEST(n_live_tup * 0.2, 5000)
 ORDER BY n_dead_tup DESC
@@ -281,7 +281,7 @@ LIMIT 10;
 \echo ''
 \echo 'ANALYZE commands for tables with stale statistics:'
 
-SELECT 'ANALYZE (VERBOSE) ' || schemaname || '.' || tablename || ';' as analyze_command
+SELECT 'ANALYZE (VERBOSE) ' || schemaname || '.' || relname || ';' as analyze_command
 FROM pg_stat_user_tables
 WHERE (last_analyze IS NULL AND last_autoanalyze IS NULL AND n_live_tup > 1000)
     OR (GREATEST(COALESCE(last_analyze, '1900-01-01'), COALESCE(last_autoanalyze, '1900-01-01')) < NOW() - INTERVAL '7 days' 

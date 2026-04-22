@@ -32,7 +32,7 @@ FROM pg_statio_user_tables;
 
 -- Cache hit ratio by table
 SELECT 
-    schemaname || '.' || tablename AS table_name,
+    schemaname || '.' || relname AS table_name,
     heap_blks_read,
     heap_blks_hit,
     ROUND(heap_blks_hit * 100.0 / NULLIF(heap_blks_hit + heap_blks_read, 0), 2) AS cache_hit_percent

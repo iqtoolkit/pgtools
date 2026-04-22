@@ -122,12 +122,12 @@ ORDER BY
 
 -- Unused indexes (candidates for removal)
 SELECT 
-    schemaname || '.' || tablename AS table_name,
+    schemaname || '.' || relname AS table_name,
     indexrelname AS index_name,
     pg_size_pretty(pg_relation_size(schemaname||'.'||indexrelname)) AS index_size,
     idx_scan AS times_used,
-    pg_size_pretty(pg_relation_size(schemaname||'.'||tablename)) AS table_size,
-    (SELECT n_live_tup FROM pg_stat_user_tables WHERE schemaname = pgu.schemaname AND relname = pgu.tablename) AS table_rows,
+    pg_size_pretty(pg_relation_size(schemaname||'.'||relname)) AS table_size,
+    (SELECT n_live_tup FROM pg_stat_user_tables WHERE schemaname = pgu.schemaname AND relname = pgu.relname) AS table_rows,
     CASE 
         WHEN idx_scan = 0 THEN 'UNUSED: Consider dropping'
         WHEN idx_scan < 10 THEN 'RARELY USED: Investigate'

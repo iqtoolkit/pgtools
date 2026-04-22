@@ -83,6 +83,8 @@ ORDER BY bytes_value DESC NULLS LAST;
 -- Buffer cache analysis (requires pg_buffercache extension)
 \echo '--- BUFFER CACHE ANALYSIS ---'
 DO $$
+DECLARE
+    r record;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_buffercache') THEN
         RAISE NOTICE 'pg_buffercache extension not installed — skipping buffer cache analysis';
@@ -90,21 +92,23 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Use a temp table so we can display from plain SQL after the DO block
-    CREATE TEMP TABLE IF NOT EXISTS _pgtools_bufcache ON COMMIT DROP AS
-    SELECT 
-        CASE 
-            WHEN category = 'buffer content' THEN category || ' (' || name || ')'
-            ELSE category
-        END as resource_type,
-        buffers,
-        pg_size_pretty(buffers * 8192) as size,
-        ROUND(100.0 * buffers / (SELECT setting FROM pg_settings WHERE name = 'shared_buffers')::int, 2) as percent_of_shared_buffers
-    FROM pg_buffercache_summary()
-    ORDER BY buffers DESC;
+    FOR r IN
+        SELECT
+            CASE
+                WHEN category = 'buffer content' THEN category || ' (' || name || ')'
+                ELSE category
+            END AS resource_type,
+            buffers,
+            pg_size_pretty(buffers * 8192) AS size,
+            ROUND(100.0 * buffers / (SELECT setting FROM pg_settings WHERE name = 'shared_buffers')::int, 2) AS percent_of_shared_buffers
+        FROM pg_buffercache_summary()
+        ORDER BY buffers DESC
+    LOOP
+        RAISE NOTICE 'resource_type=% buffers=% size=% pct=%',
+            r.resource_type, r.buffers, r.size, r.percent_of_shared_buffers;
+    END LOOP;
 END
 $$;
-SELECT * FROM _pgtools_bufcache;
 
 \echo ''
 
@@ -157,11 +161,11 @@ ORDER BY blks_read + blks_hit DESC;
 
 -- Table I/O and size analysis
 \echo '--- TOP TABLES BY I/O AND SIZE ---'
-SELECT 
+SELECT
     schemaname,
-    tablename,
-    pg_size_pretty(pg_total_relation_size(format('%I.%I', schemaname, tablename))) as total_size,
-    pg_total_relation_size(format('%I.%I', schemaname, tablename)) as size_bytes,
+    relname,
+    pg_size_pretty(pg_total_relation_size(format('%I.%I', schemaname, relname))) as total_size,
+    pg_total_relation_size(format('%I.%I', schemaname, relname)) as size_bytes,
     heap_blks_read,
     heap_blks_hit,
     ROUND(100.0 * heap_blks_hit / NULLIF(heap_blks_hit + heap_blks_read, 0), 2) as cache_hit_ratio,
@@ -181,15 +185,15 @@ LIMIT 20;
 
 -- Index utilization and efficiency
 \echo '--- INDEX UTILIZATION ANALYSIS ---'
-SELECT 
+SELECT
     schemaname,
-    tablename,
-    indexname,
-    pg_size_pretty(pg_relation_size(format('%I.%I', schemaname, indexname))) as index_size,
+    relname,
+    indexrelname,
+    pg_size_pretty(pg_relation_size(format('%I.%I', schemaname, indexrelname))) as index_size,
     idx_scan as times_used,
     idx_tup_read as tuples_read,
     idx_tup_fetch as tuples_fetched,
-    CASE 
+    CASE
         WHEN idx_scan = 0 THEN 'UNUSED'
         WHEN idx_scan < 10 THEN 'RARELY_USED'
         WHEN idx_scan < 100 THEN 'MODERATELY_USED'
@@ -197,11 +201,11 @@ SELECT
     END as usage_category,
     CASE
         WHEN idx_scan = 0 THEN 'Consider dropping if confirmed unused'
-        WHEN idx_scan < 10 AND pg_relation_size(format('%I.%I', schemaname, indexname)) > 10*1024*1024 THEN 'Large rarely used index'
+        WHEN idx_scan < 10 AND pg_relation_size(format('%I.%I', schemaname, indexrelname)) > 10*1024*1024 THEN 'Large rarely used index'
         ELSE 'Normal usage'
     END as recommendation
-FROM pg_stat_user_indexes 
-ORDER BY pg_relation_size(format('%I.%I', schemaname, indexname)) DESC
+FROM pg_stat_user_indexes
+ORDER BY pg_relation_size(format('%I.%I', schemaname, indexrelname)) DESC
 LIMIT 25;
 
 \echo ''
@@ -244,9 +248,9 @@ FROM pg_stat_bgwriter;
 
 -- Autovacuum and maintenance analysis
 \echo '--- AUTOVACUUM AND MAINTENANCE ANALYSIS ---'
-SELECT 
+SELECT
     schemaname,
-    tablename,
+    relname,
     n_tup_ins as inserts,
     n_tup_upd as updates,
     n_tup_del as deletes,

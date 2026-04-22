@@ -163,7 +163,7 @@ SELECT
     ROUND(stddev_exec_time::numeric, 2) as stddev_time_ms,
     ROUND(max_exec_time::numeric, 2) as max_time_ms,
     ROUND(min_exec_time::numeric, 2) as min_time_ms,
-    ROUND((stddev_exec_time / GREATEST(mean_exec_time, 1)) * 100, 2) as coefficient_of_variation,
+    ROUND(((stddev_exec_time / GREATEST(mean_exec_time, 1)) * 100)::numeric, 2) as coefficient_of_variation,
     LEFT(query, 120) || '...' as query_snippet
 FROM pg_stat_statements 
 WHERE calls > 10  -- Sufficient sample size

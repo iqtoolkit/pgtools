@@ -123,8 +123,9 @@ WITH connection_stats AS (
         COUNT(*) FILTER (WHERE state LIKE 'idle in transaction%') as problematic_connections,
         AVG(EXTRACT(EPOCH FROM (now() - backend_start))) as avg_connection_age,
         (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') as max_connections
+    FROM pg_stat_activity
 )
-SELECT 
+SELECT
     total_connections,
     active_connections,
     idle_connections,
