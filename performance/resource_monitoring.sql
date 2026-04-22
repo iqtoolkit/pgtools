@@ -162,21 +162,24 @@ ORDER BY blks_read + blks_hit DESC;
 -- Table I/O and size analysis
 \echo '--- TOP TABLES BY I/O AND SIZE ---'
 SELECT
-    schemaname,
-    relname,
-    pg_size_pretty(pg_total_relation_size(format('%I.%I', schemaname, relname))) as total_size,
-    pg_total_relation_size(format('%I.%I', schemaname, relname)) as size_bytes,
-    heap_blks_read,
-    heap_blks_hit,
-    ROUND(100.0 * heap_blks_hit / NULLIF(heap_blks_hit + heap_blks_read, 0), 2) as cache_hit_ratio,
-    idx_blks_read,
-    idx_blks_hit,
-    ROUND(100.0 * idx_blks_hit / NULLIF(idx_blks_hit + idx_blks_read, 0), 2) as index_hit_ratio,
-    seq_scan,
-    seq_tup_read,
-    idx_scan,
-    idx_tup_fetch
-FROM pg_statio_user_tables 
+    io.schemaname,
+    io.relname,
+    pg_size_pretty(pg_total_relation_size(format('%I.%I', io.schemaname, io.relname))) as total_size,
+    pg_total_relation_size(format('%I.%I', io.schemaname, io.relname)) as size_bytes,
+    io.heap_blks_read,
+    io.heap_blks_hit,
+    ROUND(100.0 * io.heap_blks_hit / NULLIF(io.heap_blks_hit + io.heap_blks_read, 0), 2) as cache_hit_ratio,
+    io.idx_blks_read,
+    io.idx_blks_hit,
+    ROUND(100.0 * io.idx_blks_hit / NULLIF(io.idx_blks_hit + io.idx_blks_read, 0), 2) as index_hit_ratio,
+    st.seq_scan,
+    st.seq_tup_read,
+    st.idx_scan,
+    st.idx_tup_fetch
+FROM pg_statio_user_tables io
+JOIN pg_stat_user_tables st
+  ON st.schemaname = io.schemaname
+ AND st.relname = io.relname
 WHERE heap_blks_read + heap_blks_hit > 0
 ORDER BY heap_blks_read + heap_blks_hit + idx_blks_read + idx_blks_hit DESC NULLS LAST
 LIMIT 20;

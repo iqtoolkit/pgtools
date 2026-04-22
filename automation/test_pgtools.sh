@@ -116,6 +116,8 @@ fi
 # CI/test database cannot support them, rather than reporting a false failure.
 SKIP_SUPERUSER_SCRIPTS="false"
 SKIP_EXTENSION_SCRIPTS="false"
+HAS_PG_STAT_STATEMENTS="false"
+HAS_PG_BUFFERCACHE="false"
 
 detect_environment_capabilities() {
     # Superuser gate — permission_audit.sql and switch_pg_wal_file.sql need it.
@@ -128,16 +130,21 @@ detect_environment_capabilities() {
         SKIP_SUPERUSER_SCRIPTS="true"
     fi
 
-    # Extension gate — any script that depends on pg_stat_statements /
-    # pg_buffercache is skipped when neither is installed as an extension.
-    local ext_count
-    ext_count="$(psql -tA -c "SELECT count(*) FROM pg_extension WHERE extname IN ('pg_stat_statements','pg_buffercache');" 2>/dev/null | tr -d '[:space:]')"
-    if [[ -z "$ext_count" || "$ext_count" == "0" ]]; then
+    # Detect extension availability once so per-file gating is deterministic.
+    if psql -tA -c "SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements' LIMIT 1;" 2>/dev/null | grep -q 1; then
+        HAS_PG_STAT_STATEMENTS="true"
+    fi
+
+    if psql -tA -c "SELECT 1 FROM pg_extension WHERE extname = 'pg_buffercache' LIMIT 1;" 2>/dev/null | grep -q 1; then
+        HAS_PG_BUFFERCACHE="true"
+    fi
+
+    if [[ "$HAS_PG_STAT_STATEMENTS" == "false" && "$HAS_PG_BUFFERCACHE" == "false" ]]; then
         SKIP_EXTENSION_SCRIPTS="true"
     fi
 
     if [[ "$VERBOSE" == "true" ]]; then
-        log "Environment detection: SKIP_SUPERUSER_SCRIPTS=$SKIP_SUPERUSER_SCRIPTS SKIP_EXTENSION_SCRIPTS=$SKIP_EXTENSION_SCRIPTS"
+        log "Environment detection: SKIP_SUPERUSER_SCRIPTS=$SKIP_SUPERUSER_SCRIPTS SKIP_EXTENSION_SCRIPTS=$SKIP_EXTENSION_SCRIPTS HAS_PG_STAT_STATEMENTS=$HAS_PG_STAT_STATEMENTS HAS_PG_BUFFERCACHE=$HAS_PG_BUFFERCACHE"
     fi
 }
 
@@ -211,11 +218,19 @@ SQL_REQUIRES_SUPERUSER=(
     "maintenance/switch_pg_wal_file.sql"
 )
 
-# Files that require pg_stat_statements or pg_buffercache to be installed as
-# extensions. Skipped when SKIP_EXTENSION_SCRIPTS is true.
-SQL_REQUIRES_EXTENSIONS=(
+# Files that require pg_stat_statements.
+SQL_REQUIRES_PG_STAT_STATEMENTS=(
+    "optimization/missing_indexes.sql"
     "performance/query_performance_profiler.sql"
-    "performance/wait_event_analysis.sql"
+    "troubleshooting/postgres_troubleshooting_queries.sql"
+    "troubleshooting/postgres_troubleshooting_query_pack_01.sql"
+    "troubleshooting/postgres_troubleshooting_query_pack_02.sql"
+    "troubleshooting/postgres_troubleshooting_query_pack_03.sql"
+)
+
+# Files that require pg_buffercache.
+SQL_REQUIRES_PG_BUFFERCACHE=(
+    "__none__"
 )
 
 # TimescaleDB-only files. Always skipped by the syntax test; covered separately
@@ -265,9 +280,15 @@ test_sql_syntax() {
                 continue
             fi
 
-            if [[ "$SKIP_EXTENSION_SCRIPTS" == "true" ]] \
-                && _sql_list_contains "$rel_path" "${SQL_REQUIRES_EXTENSIONS[@]}"; then
-                [[ "$VERBOSE" == "true" ]] && log "Skipping extension-dependent script (pg_stat_statements/pg_buffercache missing): $rel_path"
+            if [[ "$HAS_PG_STAT_STATEMENTS" == "false" ]] \
+                && _sql_list_contains "$rel_path" "${SQL_REQUIRES_PG_STAT_STATEMENTS[@]}"; then
+                [[ "$VERBOSE" == "true" ]] && log "Skipping pg_stat_statements-dependent script: $rel_path"
+                continue
+            fi
+
+            if [[ "$HAS_PG_BUFFERCACHE" == "false" ]] \
+                && _sql_list_contains "$rel_path" "${SQL_REQUIRES_PG_BUFFERCACHE[@]}"; then
+                [[ "$VERBOSE" == "true" ]] && log "Skipping pg_buffercache-dependent script: $rel_path"
                 continue
             fi
 

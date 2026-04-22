@@ -275,8 +275,7 @@ SELECT
         ELSE 'Review PostgreSQL configuration for ' || wait_event
     END
 FROM current_waits
-WHERE processes > 1
-ORDER BY processes DESC;
+WHERE processes > 1;
 
 \echo ''
 \echo '================================================='

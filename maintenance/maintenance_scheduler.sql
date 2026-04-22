@@ -96,11 +96,13 @@ WHERE (last_analyze IS NULL AND last_autoanalyze IS NULL)
         AND (n_tup_ins + n_tup_upd + n_tup_del) > 1000)
     OR ((n_tup_ins + n_tup_upd + n_tup_del) > n_live_tup * 0.1)
 ORDER BY 
-    CASE analyze_priority
-        WHEN 'NEVER_ANALYZED' THEN 1
-        WHEN 'VERY_STALE' THEN 2
-        WHEN 'STALE' THEN 3
-        WHEN 'HIGH_CHANGES' THEN 4
+    CASE
+        WHEN last_analyze IS NULL AND last_autoanalyze IS NULL THEN 1
+        WHEN GREATEST(last_analyze, last_autoanalyze) < NOW() - INTERVAL '30 days'
+             AND (n_tup_ins + n_tup_upd + n_tup_del) > 10000 THEN 2
+        WHEN GREATEST(last_analyze, last_autoanalyze) < NOW() - INTERVAL '7 days'
+             AND (n_tup_ins + n_tup_upd + n_tup_del) > 1000 THEN 3
+        WHEN (n_tup_ins + n_tup_upd + n_tup_del) > n_live_tup * 0.1 THEN 4
         ELSE 5
     END,
     total_modifications DESC;
