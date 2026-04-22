@@ -8,7 +8,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PGTOOLS_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Color codes
 RED='\033[0;31m'
@@ -325,7 +324,7 @@ run_socat_server() {
             echo "Connection: close"
             echo ""
             generate_metrics
-        } | socat TCP-LISTEN:$PORT,bind=$BIND_ADDRESS,reuseaddr,fork STDIO
+        } | socat TCP-LISTEN:"$PORT",bind="$BIND_ADDRESS",reuseaddr,fork STDIO
     done
 }
 

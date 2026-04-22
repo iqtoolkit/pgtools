@@ -55,8 +55,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PGTOOLS_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Color codes
 RED='\033[0;31m'
@@ -440,7 +438,7 @@ process_vacuum() {
     candidates_file=$(get_vacuum_candidates) || return 1
     
     local count=0
-    while IFS=$'\t' read -r schema table dead_tuples live_tuples dead_ratio size last_vacuum last_autovacuum; do
+    while IFS=$'\t' read -r schema table dead_tuples live_tuples dead_ratio size _last_vacuum _last_autovacuum; do
         [[ -z "$schema" ]] && continue
         ((count++))
         
@@ -474,7 +472,7 @@ process_analyze() {
     candidates_file=$(get_analyze_candidates) || return 1
     
     local count=0
-    while IFS=$'\t' read -r schema table total_changes size last_analyze last_autoanalyze priority; do
+    while IFS=$'\t' read -r schema table total_changes size _last_analyze _last_autoanalyze priority; do
         [[ -z "$schema" ]] && continue
         ((count++))
         
