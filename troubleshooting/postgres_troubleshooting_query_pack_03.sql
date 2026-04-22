@@ -13,7 +13,7 @@ ORDER BY pg_total_relation_size(relid) DESC
 LIMIT 10;
 
 -- 2. Replication lag (on replica)
-select now()-pg_last_xact_replay_timestamp() as replication_lag
+select now()-pg_last_xact_replay_timestamp() as replication_lag;
 
 
 -- 3.Replication Slots and Their Status

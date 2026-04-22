@@ -45,7 +45,7 @@ ORDER BY name;
 SELECT 
     schemaname,
     tablename,
-    attname as column_name,
+    s.attname as column_name,
     attstattarget as statistics_target,
     CASE 
         WHEN attstattarget = -1 THEN 'Default (' || (SELECT setting FROM pg_settings WHERE name = 'default_statistics_target') || ')'
@@ -58,7 +58,7 @@ JOIN pg_attribute a ON (s.schemaname = (SELECT nspname FROM pg_namespace WHERE o
     AND s.attname = a.attname)
 WHERE attstattarget != -1
     AND schemaname NOT IN ('information_schema', 'pg_catalog')
-ORDER BY schemaname, tablename, attname;
+ORDER BY schemaname, tablename, s.attname;
 
 \echo ''
 
@@ -88,11 +88,11 @@ WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
         (n_distinct > 1000 AND array_length(histogram_bounds, 1) < 20) OR
         (ABS(correlation) > 0.1 AND array_length(histogram_bounds, 1) < 50)
     )
-ORDER BY 
-    CASE statistics_quality
-        WHEN 'LOW_MCV_COUNT' THEN 1
-        WHEN 'LOW_HISTOGRAM_RESOLUTION' THEN 2
-        WHEN 'POOR_CORRELATION_STATS' THEN 3
+ORDER BY
+    CASE
+        WHEN n_distinct > 100 AND array_length(most_common_vals, 1) < 10 THEN 1
+        WHEN n_distinct > 1000 AND array_length(histogram_bounds, 1) < 20 THEN 2
+        WHEN ABS(correlation) > 0.1 AND array_length(histogram_bounds, 1) < 50 THEN 3
         ELSE 4
     END,
     n_distinct DESC;
@@ -101,9 +101,9 @@ ORDER BY
 
 -- Statistics freshness analysis
 \echo '--- STATISTICS FRESHNESS ANALYSIS ---'
-SELECT 
+SELECT
     schemaname,
-    tablename,
+    relname,
     n_live_tup,
     n_dead_tup,
     n_tup_ins + n_tup_upd + n_tup_del as total_changes_since_analyze,
@@ -175,35 +175,35 @@ ORDER BY schemaname, tablename,
 
 -- Index statistics and usage
 \echo '--- INDEX STATISTICS AND USAGE ---'
-SELECT 
+SELECT
     schemaname,
-    tablename,
-    indexname,
+    relname,
+    indexrelname,
     idx_scan as scans,
     idx_tup_read as tuples_read,
     idx_tup_fetch as tuples_fetched,
-    pg_size_pretty(pg_relation_size(schemaname||'.'||indexname)) as index_size,
-    CASE 
+    pg_size_pretty(pg_relation_size(schemaname||'.'||indexrelname)) as index_size,
+    CASE
         WHEN idx_scan = 0 THEN 'UNUSED'
         WHEN idx_scan < 10 THEN 'RARELY_USED'
         WHEN idx_scan < 1000 THEN 'MODERATELY_USED'
         ELSE 'FREQUENTLY_USED'
     END as usage_category,
-    CASE 
+    CASE
         WHEN idx_scan > 0 AND idx_tup_read > idx_tup_fetch * 10 THEN 'INEFFICIENT'
         WHEN idx_scan > 0 AND idx_tup_read > idx_tup_fetch * 2 THEN 'MODERATE_EFFICIENCY'
         WHEN idx_scan > 0 THEN 'EFFICIENT'
         ELSE 'NOT_EVALUATED'
     END as efficiency_rating
 FROM pg_stat_user_indexes
-WHERE pg_relation_size(schemaname||'.'||indexname) > 1024 * 1024  -- >1MB
-ORDER BY 
-    CASE usage_category
-        WHEN 'UNUSED' THEN 1
-        WHEN 'RARELY_USED' THEN 2
+WHERE pg_relation_size(schemaname||'.'||indexrelname) > 1024 * 1024  -- >1MB
+ORDER BY
+    CASE
+        WHEN idx_scan = 0 THEN 1
+        WHEN idx_scan < 10 THEN 2
         ELSE 3
     END,
-    pg_relation_size(schemaname||'.'||indexname) DESC;
+    pg_relation_size(schemaname||'.'||indexrelname) DESC;
 
 \echo ''
 
@@ -217,9 +217,9 @@ WITH stats_issues AS (
         COUNT(*) FILTER (WHERE null_frac > 0.3) as high_null_columns,
         COUNT(*) FILTER (WHERE ABS(correlation) > 0.5) as high_correlation_columns,
         COUNT(*) as total_columns,
-        (SELECT n_live_tup FROM pg_stat_user_tables st WHERE st.schemaname = s.schemaname AND st.tablename = s.tablename) as row_count,
-        (SELECT EXTRACT(HOURS FROM (now() - GREATEST(COALESCE(last_analyze, '1900-01-01'), COALESCE(last_autoanalyze, '1900-01-01')))) 
-         FROM pg_stat_user_tables st WHERE st.schemaname = s.schemaname AND st.tablename = s.tablename) as hours_since_analyze
+        (SELECT n_live_tup FROM pg_stat_user_tables st WHERE st.schemaname = s.schemaname AND st.relname = s.tablename) as row_count,
+        (SELECT EXTRACT(HOURS FROM (now() - GREATEST(COALESCE(last_analyze, '1900-01-01'), COALESCE(last_autoanalyze, '1900-01-01'))))
+         FROM pg_stat_user_tables st WHERE st.schemaname = s.schemaname AND st.relname = s.tablename) as hours_since_analyze
     FROM pg_stats s
     WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
     GROUP BY schemaname, tablename
@@ -252,11 +252,11 @@ WHERE high_cardinality_low_mcv > 0
     OR high_correlation_columns > total_columns * 0.5 
     OR high_null_columns > total_columns * 0.3
     OR (hours_since_analyze > 168 AND row_count > 100000)
-ORDER BY 
-    CASE issue_type
-        WHEN 'STALE_STATS_LARGE_TABLE' THEN 1
-        WHEN 'INSUFFICIENT_MCV_STATS' THEN 2
-        WHEN 'HIGH_CORRELATION_CONCERN' THEN 3
+ORDER BY
+    CASE
+        WHEN hours_since_analyze > 168 AND row_count > 100000 THEN 1
+        WHEN high_cardinality_low_mcv > 0 THEN 2
+        WHEN high_correlation_columns > total_columns * 0.5 THEN 3
         ELSE 4
     END,
     row_count DESC;
@@ -313,8 +313,8 @@ WITH statistics_summary AS (
 SELECT 
     'IMMEDIATE STATISTICS ACTIONS:' as category,
     CASE 
-        WHEN never_analyzed_tables > 0 THEN 
-            'ANALYZE ' || never_analyzed_tables || ' tables that have never been analyzed'
+        WHEN never_analyzed_tables > 0 THEN
+            'ANALYZE ' || never_analyzed_tables::text || ' tables that have never been analyzed'
         ELSE 'All tables have been analyzed at least once'
     END as recommendation
 FROM statistics_summary
@@ -322,8 +322,8 @@ UNION ALL
 SELECT 
     'REGULAR STATISTICS MAINTENANCE:',
     CASE 
-        WHEN stale_large_tables > 0 THEN 
-            'Update statistics on ' || stale_large_tables || ' large tables with stale statistics'
+        WHEN stale_large_tables > 0 THEN
+            'Update statistics on ' || stale_large_tables::text || ' large tables with stale statistics'
         ELSE 'Large table statistics are current'
     END
 FROM statistics_summary
@@ -331,8 +331,8 @@ UNION ALL
 SELECT 
     'STATISTICS TARGET TUNING:',
     CASE 
-        WHEN insufficient_mcv_columns > 0 THEN 
-            'Consider increasing statistics_target for ' || insufficient_mcv_columns || ' high-cardinality columns'
+        WHEN insufficient_mcv_columns > 0 THEN
+            'Consider increasing statistics_target for ' || insufficient_mcv_columns::text || ' high-cardinality columns'
         ELSE 'Column statistics targets appear adequate'
     END
 FROM statistics_summary
@@ -340,11 +340,11 @@ UNION ALL
 SELECT 
     'CONFIGURATION RECOMMENDATION:',
     CASE 
-        WHEN default_stats_target < 100 THEN 
-            'Consider increasing default_statistics_target (current: ' || default_stats_target || ', recommend: 100-1000)'
-        WHEN default_stats_target > 1000 THEN 
-            'default_statistics_target is high (' || default_stats_target || ') - ensure ANALYZE performance is acceptable'
-        ELSE 'default_statistics_target (' || default_stats_target || ') appears reasonable'
+        WHEN default_stats_target < 100 THEN
+            'Consider increasing default_statistics_target (current: ' || default_stats_target::text || ', recommend: 100-1000)'
+        WHEN default_stats_target > 1000 THEN
+            'default_statistics_target is high (' || default_stats_target::text || ') - ensure ANALYZE performance is acceptable'
+        ELSE 'default_statistics_target (' || default_stats_target::text || ') appears reasonable'
     END
 FROM statistics_summary;
 

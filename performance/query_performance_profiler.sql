@@ -36,7 +36,7 @@ SELECT
     SUM(calls) as total_calls,
     ROUND(SUM(total_exec_time)::numeric, 2) as total_exec_time_ms,
     ROUND(AVG(mean_exec_time)::numeric, 2) as avg_mean_time_ms,
-    ROUND(SUM(total_exec_time) / SUM(calls), 2) as overall_avg_time_ms,
+    ROUND((SUM(total_exec_time) / SUM(calls))::numeric, 2) as overall_avg_time_ms,
     SUM(rows) as total_rows_returned
 FROM pg_stat_statements;
 
@@ -50,7 +50,7 @@ SELECT
     ROUND(total_exec_time::numeric, 2) as total_time_ms,
     ROUND(mean_exec_time::numeric, 2) as mean_time_ms,
     ROUND(stddev_exec_time::numeric, 2) as stddev_time_ms,
-    ROUND((total_exec_time / sum(total_exec_time) OVER()) * 100, 2) as percent_total_time,
+    ROUND(((total_exec_time / sum(total_exec_time) OVER()) * 100)::numeric, 2) as percent_total_time,
     rows,
     ROUND(100.0 * shared_blks_hit / nullif(shared_blks_hit + shared_blks_read, 0), 2) as hit_percent,
     LEFT(query, 120) || '...' as query_snippet
@@ -86,7 +86,7 @@ SELECT
     calls,
     ROUND(total_exec_time::numeric, 2) as total_time_ms,
     ROUND(mean_exec_time::numeric, 2) as mean_time_ms,
-    ROUND((calls::numeric / sum(calls) OVER()) * 100, 2) as percent_total_calls,
+    ROUND(((calls::numeric / sum(calls) OVER()) * 100)::numeric, 2) as percent_total_calls,
     rows,
     ROUND(100.0 * shared_blks_hit / nullif(shared_blks_hit + shared_blks_read, 0), 2) as hit_percent,
     LEFT(query, 120) || '...' as query_snippet
@@ -163,7 +163,7 @@ SELECT
     ROUND(stddev_exec_time::numeric, 2) as stddev_time_ms,
     ROUND(max_exec_time::numeric, 2) as max_time_ms,
     ROUND(min_exec_time::numeric, 2) as min_time_ms,
-    ROUND((stddev_exec_time / GREATEST(mean_exec_time, 1)) * 100, 2) as coefficient_of_variation,
+    ROUND(((stddev_exec_time / GREATEST(mean_exec_time, 1)) * 100)::numeric, 2) as coefficient_of_variation,
     LEFT(query, 120) || '...' as query_snippet
 FROM pg_stat_statements 
 WHERE calls > 10  -- Sufficient sample size

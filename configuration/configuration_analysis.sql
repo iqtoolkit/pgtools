@@ -56,8 +56,7 @@ WITH memory_settings AS (
         'maintenance_work_mem',
         'effective_cache_size',
         'wal_buffers',
-        'max_connections',
-        'shared_preload_libraries'
+        'max_connections'
     )
 )
 SELECT 
@@ -70,7 +69,7 @@ SELECT
         WHEN 'shared_buffers' THEN 
             CASE 
                 WHEN bytes_value < 128 * 1024 * 1024 THEN 'LOW - Consider 25% of RAM'
-                WHEN bytes_value > 8 * 1024 * 1024 * 1024 THEN 'HIGH - May cause issues'
+                WHEN bytes_value > 8::bigint * 1024 * 1024 * 1024 THEN 'HIGH - May cause issues'
                 ELSE 'REASONABLE'
             END
         WHEN 'work_mem' THEN 
@@ -82,7 +81,7 @@ SELECT
         WHEN 'maintenance_work_mem' THEN
             CASE 
                 WHEN bytes_value < 64 * 1024 * 1024 THEN 'LOW - Slow maintenance ops'
-                WHEN bytes_value > 2 * 1024 * 1024 * 1024 THEN 'HIGH - May be excessive'
+                WHEN bytes_value > 2::bigint * 1024 * 1024 * 1024 THEN 'HIGH - May be excessive'
                 ELSE 'REASONABLE'
             END
         WHEN 'effective_cache_size' THEN
@@ -176,7 +175,7 @@ SELECT
         WHEN 'max_wal_size' THEN
             CASE 
                 WHEN pg_size_bytes(setting) < 1024 * 1024 * 1024 THEN 'LOW - Frequent checkpoints'
-                WHEN pg_size_bytes(setting) > 100 * 1024 * 1024 * 1024 THEN 'HIGH - Long recovery time'
+                WHEN pg_size_bytes(setting) > 100::bigint * 1024 * 1024 * 1024 THEN 'HIGH - Long recovery time'
                 ELSE 'REASONABLE'
             END
         ELSE 'Review based on requirements'
@@ -419,7 +418,7 @@ SELECT
     CASE 
         WHEN shared_buffers_bytes < 128 * 1024 * 1024 THEN 
             'shared_buffers too low - recommend 25% of RAM (current: ' || pg_size_pretty(shared_buffers_bytes) || ')'
-        WHEN shared_buffers_bytes > 8 * 1024 * 1024 * 1024 THEN
+        WHEN shared_buffers_bytes > 8::bigint * 1024 * 1024 * 1024 THEN
             'shared_buffers very high - may cause performance issues (current: ' || pg_size_pretty(shared_buffers_bytes) || ')'
         ELSE 'shared_buffers appears reasonable'
     END as recommendation
@@ -428,11 +427,11 @@ UNION ALL
 SELECT 
     'CONNECTION RECOMMENDATIONS:',
     CASE 
-        WHEN max_connections > 1000 THEN 
-            'max_connections very high (' || max_connections || ') - strongly recommend connection pooling'
+        WHEN max_connections > 1000 THEN
+            'max_connections very high (' || max_connections::text || ') - strongly recommend connection pooling'
         WHEN max_connections > 200 THEN
-            'max_connections high (' || max_connections || ') - consider connection pooling'
-        ELSE 'max_connections appears reasonable (' || max_connections || ')'
+            'max_connections high (' || max_connections::text || ') - consider connection pooling'
+        ELSE 'max_connections appears reasonable (' || max_connections::text || ')'
     END
 FROM config_analysis
 UNION ALL

@@ -25,13 +25,13 @@
  *   - Empty result means no blocking is occurring
  */
 
-SELECT 
-    blocking.pid AS blocking_pid,
+SELECT
+    blocking_locks.pid AS blocking_pid,
     blocking_activity.usename AS blocking_user,
     blocking_activity.query AS blocking_query,
     blocking_activity.state AS blocking_state,
     age(now(), blocking_activity.query_start) AS blocking_duration,
-    blocked.pid AS blocked_pid,
+    blocked_locks.pid AS blocked_pid,
     blocked_activity.usename AS blocked_user,
     blocked_activity.query AS blocked_query,
     age(now(), blocked_activity.query_start) AS blocked_duration,

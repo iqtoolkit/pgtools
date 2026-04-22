@@ -83,6 +83,8 @@ ORDER BY bytes_value DESC NULLS LAST;
 -- Buffer cache analysis (requires pg_buffercache extension)
 \echo '--- BUFFER CACHE ANALYSIS ---'
 DO $$
+DECLARE
+    r record;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_buffercache') THEN
         RAISE NOTICE 'pg_buffercache extension not installed — skipping buffer cache analysis';
@@ -90,21 +92,23 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Use a temp table so we can display from plain SQL after the DO block
-    CREATE TEMP TABLE IF NOT EXISTS _pgtools_bufcache ON COMMIT DROP AS
-    SELECT 
-        CASE 
-            WHEN category = 'buffer content' THEN category || ' (' || name || ')'
-            ELSE category
-        END as resource_type,
-        buffers,
-        pg_size_pretty(buffers * 8192) as size,
-        ROUND(100.0 * buffers / (SELECT setting FROM pg_settings WHERE name = 'shared_buffers')::int, 2) as percent_of_shared_buffers
-    FROM pg_buffercache_summary()
-    ORDER BY buffers DESC;
+    FOR r IN
+        SELECT
+            CASE
+                WHEN category = 'buffer content' THEN category || ' (' || name || ')'
+                ELSE category
+            END AS resource_type,
+            buffers,
+            pg_size_pretty(buffers * 8192) AS size,
+            ROUND(100.0 * buffers / (SELECT setting FROM pg_settings WHERE name = 'shared_buffers')::int, 2) AS percent_of_shared_buffers
+        FROM pg_buffercache_summary()
+        ORDER BY buffers DESC
+    LOOP
+        RAISE NOTICE 'resource_type=% buffers=% size=% pct=%',
+            r.resource_type, r.buffers, r.size, r.percent_of_shared_buffers;
+    END LOOP;
 END
 $$;
-SELECT * FROM _pgtools_bufcache;
 
 \echo ''
 
@@ -157,22 +161,25 @@ ORDER BY blks_read + blks_hit DESC;
 
 -- Table I/O and size analysis
 \echo '--- TOP TABLES BY I/O AND SIZE ---'
-SELECT 
-    schemaname,
-    tablename,
-    pg_size_pretty(pg_total_relation_size(format('%I.%I', schemaname, tablename))) as total_size,
-    pg_total_relation_size(format('%I.%I', schemaname, tablename)) as size_bytes,
-    heap_blks_read,
-    heap_blks_hit,
-    ROUND(100.0 * heap_blks_hit / NULLIF(heap_blks_hit + heap_blks_read, 0), 2) as cache_hit_ratio,
-    idx_blks_read,
-    idx_blks_hit,
-    ROUND(100.0 * idx_blks_hit / NULLIF(idx_blks_hit + idx_blks_read, 0), 2) as index_hit_ratio,
-    seq_scan,
-    seq_tup_read,
-    idx_scan,
-    idx_tup_fetch
-FROM pg_statio_user_tables 
+SELECT
+    io.schemaname,
+    io.relname,
+    pg_size_pretty(pg_total_relation_size(format('%I.%I', io.schemaname, io.relname))) as total_size,
+    pg_total_relation_size(format('%I.%I', io.schemaname, io.relname)) as size_bytes,
+    io.heap_blks_read,
+    io.heap_blks_hit,
+    ROUND(100.0 * io.heap_blks_hit / NULLIF(io.heap_blks_hit + io.heap_blks_read, 0), 2) as cache_hit_ratio,
+    io.idx_blks_read,
+    io.idx_blks_hit,
+    ROUND(100.0 * io.idx_blks_hit / NULLIF(io.idx_blks_hit + io.idx_blks_read, 0), 2) as index_hit_ratio,
+    st.seq_scan,
+    st.seq_tup_read,
+    st.idx_scan,
+    st.idx_tup_fetch
+FROM pg_statio_user_tables io
+JOIN pg_stat_user_tables st
+  ON st.schemaname = io.schemaname
+ AND st.relname = io.relname
 WHERE heap_blks_read + heap_blks_hit > 0
 ORDER BY heap_blks_read + heap_blks_hit + idx_blks_read + idx_blks_hit DESC NULLS LAST
 LIMIT 20;
@@ -181,15 +188,15 @@ LIMIT 20;
 
 -- Index utilization and efficiency
 \echo '--- INDEX UTILIZATION ANALYSIS ---'
-SELECT 
+SELECT
     schemaname,
-    tablename,
-    indexname,
-    pg_size_pretty(pg_relation_size(format('%I.%I', schemaname, indexname))) as index_size,
+    relname,
+    indexrelname,
+    pg_size_pretty(pg_relation_size(format('%I.%I', schemaname, indexrelname))) as index_size,
     idx_scan as times_used,
     idx_tup_read as tuples_read,
     idx_tup_fetch as tuples_fetched,
-    CASE 
+    CASE
         WHEN idx_scan = 0 THEN 'UNUSED'
         WHEN idx_scan < 10 THEN 'RARELY_USED'
         WHEN idx_scan < 100 THEN 'MODERATELY_USED'
@@ -197,11 +204,11 @@ SELECT
     END as usage_category,
     CASE
         WHEN idx_scan = 0 THEN 'Consider dropping if confirmed unused'
-        WHEN idx_scan < 10 AND pg_relation_size(format('%I.%I', schemaname, indexname)) > 10*1024*1024 THEN 'Large rarely used index'
+        WHEN idx_scan < 10 AND pg_relation_size(format('%I.%I', schemaname, indexrelname)) > 10*1024*1024 THEN 'Large rarely used index'
         ELSE 'Normal usage'
     END as recommendation
-FROM pg_stat_user_indexes 
-ORDER BY pg_relation_size(format('%I.%I', schemaname, indexname)) DESC
+FROM pg_stat_user_indexes
+ORDER BY pg_relation_size(format('%I.%I', schemaname, indexrelname)) DESC
 LIMIT 25;
 
 \echo ''
@@ -210,7 +217,7 @@ LIMIT 25;
 \echo '--- WAL AND CHECKPOINT STATISTICS ---'
 SELECT 
     'WAL Location' as metric,
-    pg_current_wal_lsn() as current_value,
+    pg_current_wal_lsn()::text as current_value,
     'Current WAL write location' as description
 UNION ALL
 SELECT 
@@ -227,26 +234,38 @@ SELECT
 
 -- Background writer, checkpointer, and checkpoint pressure stats
 \echo '--- BACKGROUND WRITER STATISTICS ---'
+WITH bgwriter_json AS (
+    SELECT to_jsonb(pg_stat_bgwriter) AS stats
+    FROM pg_stat_bgwriter
+)
 SELECT
-    checkpoints_timed,
-    checkpoints_req,
-    round(checkpoints_req::numeric / nullif(checkpoints_timed + checkpoints_req, 0) * 100, 2) AS req_pct,
-    checkpoint_write_time,
-    checkpoint_sync_time,
-    buffers_checkpoint,
-    buffers_clean,
-    buffers_backend,
-    maxwritten_clean,
-    buffers_backend_fsync
-FROM pg_stat_bgwriter;
+    COALESCE((stats ->> 'checkpoints_timed')::bigint, 0) AS checkpoints_timed,
+    COALESCE((stats ->> 'checkpoints_req')::bigint, 0) AS checkpoints_req,
+    round(
+        COALESCE((stats ->> 'checkpoints_req')::numeric, 0)
+        / nullif(
+            COALESCE((stats ->> 'checkpoints_timed')::numeric, 0)
+            + COALESCE((stats ->> 'checkpoints_req')::numeric, 0),
+            0
+        ) * 100,
+        2
+    ) AS req_pct,
+    COALESCE((stats ->> 'checkpoint_write_time')::numeric, 0) AS checkpoint_write_time,
+    COALESCE((stats ->> 'checkpoint_sync_time')::numeric, 0) AS checkpoint_sync_time,
+    COALESCE((stats ->> 'buffers_checkpoint')::bigint, 0) AS buffers_checkpoint,
+    COALESCE((stats ->> 'buffers_clean')::bigint, 0) AS buffers_clean,
+    COALESCE((stats ->> 'buffers_backend')::bigint, 0) AS buffers_backend,
+    COALESCE((stats ->> 'maxwritten_clean')::bigint, 0) AS maxwritten_clean,
+    COALESCE((stats ->> 'buffers_backend_fsync')::bigint, 0) AS buffers_backend_fsync
+FROM bgwriter_json;
 
 \echo ''
 
 -- Autovacuum and maintenance analysis
 \echo '--- AUTOVACUUM AND MAINTENANCE ANALYSIS ---'
-SELECT 
+SELECT
     schemaname,
-    tablename,
+    relname,
     n_tup_ins as inserts,
     n_tup_upd as updates,
     n_tup_del as deletes,
@@ -293,8 +312,14 @@ WITH resource_analysis AS (
         (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') as max_connections,
         (SELECT SUM(blks_hit) FROM pg_stat_database) as total_cache_hits,
         (SELECT SUM(blks_read) FROM pg_stat_database) as total_disk_reads,
-        (SELECT checkpoints_req FROM pg_stat_bgwriter) as checkpoint_requests,
-        (SELECT checkpoints_timed FROM pg_stat_bgwriter) as checkpoint_timed
+        (
+            SELECT COALESCE((to_jsonb(pg_stat_bgwriter) ->> 'checkpoints_req')::bigint, 0)
+            FROM pg_stat_bgwriter
+        ) as checkpoint_requests,
+        (
+            SELECT COALESCE((to_jsonb(pg_stat_bgwriter) ->> 'checkpoints_timed')::bigint, 0)
+            FROM pg_stat_bgwriter
+        ) as checkpoint_timed
 )
 SELECT 
     CASE 

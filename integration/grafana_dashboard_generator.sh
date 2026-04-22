@@ -7,8 +7,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PGTOOLS_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Color codes
 RED='\033[0;31m'
@@ -593,7 +591,8 @@ upload_to_grafana() {
     
     log "Uploading dashboard to Grafana: $GRAFANA_URL"
     
-    local temp_file=$(mktemp)
+    local temp_file
+    temp_file=$(mktemp)
     echo "$dashboard_json" > "$temp_file"
     
     local response
@@ -604,7 +603,8 @@ upload_to_grafana() {
         
         if echo "$response" | grep -q '"status":"success"'; then
             success "Dashboard uploaded successfully to Grafana"
-            local dashboard_url=$(echo "$response" | grep -o '"url":"[^"]*"' | cut -d'"' -f4)
+            local dashboard_url
+            dashboard_url=$(echo "$response" | grep -o '"url":"[^"]*"' | cut -d'"' -f4)
             [[ -n "$dashboard_url" ]] && log "Dashboard URL: $GRAFANA_URL$dashboard_url"
         else
             error "Failed to upload dashboard to Grafana"

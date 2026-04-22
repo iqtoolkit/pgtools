@@ -274,13 +274,13 @@ run_health_checks() {
         
         if [[ -f "$script_path" ]]; then
             if run_script "$script_path" "$script_name" "$output_file"; then
-                ((completed_scripts++))
+                completed_scripts=$((completed_scripts + 1))
             else
-                ((failed_scripts++))
+                failed_scripts=$((failed_scripts + 1))
             fi
         else
             error "Script not found: $script_path"
-            ((failed_scripts++))
+            failed_scripts=$((failed_scripts + 1))
         fi
     done
     

@@ -122,12 +122,12 @@ ORDER BY
 
 -- Unused indexes (candidates for removal)
 SELECT 
-    schemaname || '.' || tablename AS table_name,
+    schemaname || '.' || relname AS table_name,
     indexrelname AS index_name,
     pg_size_pretty(pg_relation_size(schemaname||'.'||indexrelname)) AS index_size,
     idx_scan AS times_used,
-    pg_size_pretty(pg_relation_size(schemaname||'.'||tablename)) AS table_size,
-    (SELECT n_live_tup FROM pg_stat_user_tables WHERE schemaname = pgu.schemaname AND relname = pgu.tablename) AS table_rows,
+    pg_size_pretty(pg_relation_size(schemaname||'.'||relname)) AS table_size,
+    (SELECT n_live_tup FROM pg_stat_user_tables WHERE schemaname = pgu.schemaname AND relname = pgu.relname) AS table_rows,
     CASE 
         WHEN idx_scan = 0 THEN 'UNUSED: Consider dropping'
         WHEN idx_scan < 10 THEN 'RARELY USED: Investigate'
@@ -148,6 +148,15 @@ ORDER BY
 
 -- Query patterns analysis (requires pg_stat_statements)
 -- This helps identify frequently used WHERE conditions that might benefit from indexes
+SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')
+         AND current_setting('shared_preload_libraries', true) LIKE '%pg_stat_statements%'
+    THEN 1
+    ELSE 0
+END AS has_pg_stat_statements
+\gset
+
+\if :has_pg_stat_statements
 SELECT 
     calls AS execution_count,
     total_exec_time AS total_execution_time_ms,
@@ -183,6 +192,12 @@ ORDER BY
     (calls * mean_exec_time) DESC,  -- Total time impact
     calls DESC
 LIMIT 20;
+\else
+\echo 'Skipping query pattern analysis: pg_stat_statements is unavailable in this server runtime.'
+\echo 'Need to install extension pg_stat_statements and load it via shared_preload_libraries.'
+\echo 'Set shared_preload_libraries = ''pg_stat_statements'' and restart PostgreSQL.'
+\echo 'Install with: CREATE EXTENSION pg_stat_statements;'
+\endif
 
 -- Tables that might benefit from partial indexes
 WITH table_analysis AS (

@@ -53,8 +53,13 @@ trap cleanup EXIT
 
 cd "$REPO_ROOT"
 
-info "Running shellcheck on automation scripts"
-shellcheck automation/*.sh
+info "Running shellcheck on all shell scripts (matches CI coverage)"
+shellcheck \
+    automation/*.sh \
+    integration/*.sh \
+    configuration/*.sh \
+    maintenance/*.sh \
+    scripts/*.sh
 
 info "Running automation fast test suite"
 ./automation/test_pgtools.sh --fast

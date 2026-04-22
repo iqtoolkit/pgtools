@@ -180,7 +180,7 @@ clean_directory() {
     local total_size=0
     
     while IFS= read -r -d '' file; do
-        ((file_count++))
+        file_count=$((file_count + 1))
         if command -v stat > /dev/null 2>&1; then
             local size
             size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "0")
@@ -225,7 +225,7 @@ clean_temp_files() {
         if [[ -e "$file" ]] && [[ -f "$file" ]]; then
             # Check if file is older than 1 day
             if [[ $(find "$file" -mtime +1 2>/dev/null) ]]; then
-                ((file_count++))
+                file_count=$((file_count + 1))
                 if [[ "$DRY_RUN" == "true" ]]; then
                     echo "Would delete temp file: $file"
                 else

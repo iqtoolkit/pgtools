@@ -138,7 +138,26 @@ FROM parent_stats ps
 ORDER BY ps.total_size DESC;
 
 -- Individual partition details with performance metrics
-SELECT 
+WITH partition_sizes AS (
+    SELECT
+        pi.inhparent,
+        pn_parent.nspname||'.'||pc_parent.relname AS parent_table,
+        pn_child.nspname||'.'||pc_child.relname AS partition_name,
+        pg_total_relation_size(pc_child.oid) AS partition_size,
+        pg_relation_size(pc_child.oid) AS table_size,
+        COALESCE(st.n_live_tup, 0) AS row_count,
+        pg_get_expr(pc_child.relpartbound, pc_child.oid) AS partition_bounds
+    FROM pg_inherits pi
+    JOIN pg_class pc_parent ON pi.inhparent = pc_parent.oid
+    JOIN pg_namespace pn_parent ON pc_parent.relnamespace = pn_parent.oid
+    JOIN pg_class pc_child ON pi.inhrelid = pc_child.oid
+    JOIN pg_namespace pn_child ON pc_child.relnamespace = pn_child.oid
+    LEFT JOIN pg_stat_user_tables st ON st.schemaname = pn_child.nspname AND st.relname = pc_child.relname
+    WHERE EXISTS (
+        SELECT 1 FROM pg_partitioned_table ppt WHERE ppt.partrelid = pc_parent.oid
+    )
+)
+SELECT
     ps.parent_table,
     ps.partition_name,
     ps.partition_bounds,
@@ -158,8 +177,8 @@ SELECT
         THEN 'SMALL: Consider consolidating with adjacent partitions'
         ELSE 'OK: Normal partition usage'
     END AS partition_health,
-    COALESCE(st.last_vacuum, 'Never'::timestamp) AS last_vacuum,
-    COALESCE(st.last_analyze, 'Never'::timestamp) AS last_analyze,
+    st.last_vacuum,
+    st.last_analyze,
     CASE 
         WHEN st.last_vacuum < now() - interval '7 days' AND ps.row_count > 1000 
         THEN 'NEEDS VACUUM: No recent vacuum activity'
@@ -213,8 +232,27 @@ FROM partition_queries
 GROUP BY constraint_exclusion_setting;
 
 -- Partition maintenance recommendations and automation
-WITH maintenance_analysis AS (
-    SELECT 
+WITH partition_sizes AS (
+    SELECT
+        pi.inhparent,
+        pn_parent.nspname||'.'||pc_parent.relname AS parent_table,
+        pn_child.nspname||'.'||pc_child.relname AS partition_name,
+        pg_total_relation_size(pc_child.oid) AS partition_size,
+        pg_relation_size(pc_child.oid) AS table_size,
+        COALESCE(st.n_live_tup, 0) AS row_count,
+        pg_get_expr(pc_child.relpartbound, pc_child.oid) AS partition_bounds
+    FROM pg_inherits pi
+    JOIN pg_class pc_parent ON pi.inhparent = pc_parent.oid
+    JOIN pg_namespace pn_parent ON pc_parent.relnamespace = pn_parent.oid
+    JOIN pg_class pc_child ON pi.inhrelid = pc_child.oid
+    JOIN pg_namespace pn_child ON pc_child.relnamespace = pn_child.oid
+    LEFT JOIN pg_stat_user_tables st ON st.schemaname = pn_child.nspname AND st.relname = pc_child.relname
+    WHERE EXISTS (
+        SELECT 1 FROM pg_partitioned_table ppt WHERE ppt.partrelid = pc_parent.oid
+    )
+),
+maintenance_analysis AS (
+    SELECT
         ps.parent_table,
         COUNT(*) AS partition_count,
         COUNT(*) FILTER (WHERE ps.row_count = 0) AS empty_partitions,

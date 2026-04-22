@@ -36,12 +36,13 @@ ORDER BY age(datfrozenxid) DESC;
 
 -- Tables with oldest frozen XID (candidates for VACUUM FREEZE)
 SELECT
-    schemaname || '.' || relname AS table_name,
-    age(relfrozenxid) AS age_in_transactions,
-    ROUND(100.0 * age(relfrozenxid) / 2000000000, 2) AS percent_towards_wraparound,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) AS total_size,
-    last_vacuum,
-    last_autovacuum
-FROM pg_stat_user_tables
-ORDER BY age(relfrozenxid) DESC
+    s.schemaname || '.' || s.relname AS table_name,
+    age(c.relfrozenxid) AS age_in_transactions,
+    ROUND(100.0 * age(c.relfrozenxid) / 2000000000, 2) AS percent_towards_wraparound,
+    pg_size_pretty(pg_total_relation_size(s.schemaname||'.'||s.relname)) AS total_size,
+    s.last_vacuum,
+    s.last_autovacuum
+FROM pg_stat_user_tables s
+JOIN pg_class c ON c.oid = s.relid
+ORDER BY age(c.relfrozenxid) DESC
 LIMIT 20;

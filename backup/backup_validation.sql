@@ -106,7 +106,7 @@ SELECT
     ) AS wal_lag_size,
     CASE 
         WHEN active = false THEN 'WARNING: Inactive slot retaining WAL'
-        WHEN pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) > 10*1024*1024*1024 
+        WHEN pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) > 10*1024^3 
         THEN 'CRITICAL: Slot lagging >10GB - may affect backup retention'
         WHEN pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) > 1*1024*1024*1024 
         THEN 'WARNING: Slot lagging >1GB'
@@ -167,7 +167,7 @@ SELECT
     ) AS indexes_toast_size,
     n_dead_tup AS dead_tuples,
     CASE 
-        WHEN pg_total_relation_size(schemaname||'.'||relname) > 10*1024*1024*1024 
+        WHEN pg_total_relation_size(schemaname||'.'||relname) > 10*1024^3 
         THEN 'Large table - consider parallel backup or pg_dump with jobs'
         WHEN n_dead_tup > n_live_tup * 0.2 
         THEN 'High bloat - VACUUM before backup for efficiency'
@@ -217,7 +217,7 @@ SELECT
 SELECT 
     datname AS database_name,
     CASE 
-        WHEN pg_database_size(datname) > 10*1024*1024*1024 THEN
+        WHEN pg_database_size(datname) > 10*1024^3 THEN
             format('pg_dump -h localhost -p 5432 -U username -Fd -j 4 -f backup_%s_%s %s',
                    datname, 
                    to_char(now(), 'YYYY-MM-DD'),
@@ -234,7 +234,7 @@ SELECT
                    datname)
     END AS suggested_backup_command,
     CASE 
-        WHEN pg_database_size(datname) > 10*1024*1024*1024 THEN 
+        WHEN pg_database_size(datname) > 10*1024^3 THEN 
             'Directory format with parallel jobs for large database'
         WHEN pg_database_size(datname) > 1*1024*1024*1024 THEN 
             'Custom format for efficient compression and selective restore'
