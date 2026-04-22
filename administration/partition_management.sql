@@ -158,8 +158,8 @@ SELECT
         THEN 'SMALL: Consider consolidating with adjacent partitions'
         ELSE 'OK: Normal partition usage'
     END AS partition_health,
-    COALESCE(st.last_vacuum, 'Never'::timestamp) AS last_vacuum,
-    COALESCE(st.last_analyze, 'Never'::timestamp) AS last_analyze,
+    st.last_vacuum,
+    st.last_analyze,
     CASE 
         WHEN st.last_vacuum < now() - interval '7 days' AND ps.row_count > 1000 
         THEN 'NEEDS VACUUM: No recent vacuum activity'

@@ -313,8 +313,8 @@ WITH statistics_summary AS (
 SELECT 
     'IMMEDIATE STATISTICS ACTIONS:' as category,
     CASE 
-        WHEN never_analyzed_tables > 0 THEN 
-            'ANALYZE ' || never_analyzed_tables || ' tables that have never been analyzed'
+        WHEN never_analyzed_tables > 0 THEN
+            'ANALYZE ' || never_analyzed_tables::text || ' tables that have never been analyzed'
         ELSE 'All tables have been analyzed at least once'
     END as recommendation
 FROM statistics_summary
@@ -322,8 +322,8 @@ UNION ALL
 SELECT 
     'REGULAR STATISTICS MAINTENANCE:',
     CASE 
-        WHEN stale_large_tables > 0 THEN 
-            'Update statistics on ' || stale_large_tables || ' large tables with stale statistics'
+        WHEN stale_large_tables > 0 THEN
+            'Update statistics on ' || stale_large_tables::text || ' large tables with stale statistics'
         ELSE 'Large table statistics are current'
     END
 FROM statistics_summary
@@ -331,8 +331,8 @@ UNION ALL
 SELECT 
     'STATISTICS TARGET TUNING:',
     CASE 
-        WHEN insufficient_mcv_columns > 0 THEN 
-            'Consider increasing statistics_target for ' || insufficient_mcv_columns || ' high-cardinality columns'
+        WHEN insufficient_mcv_columns > 0 THEN
+            'Consider increasing statistics_target for ' || insufficient_mcv_columns::text || ' high-cardinality columns'
         ELSE 'Column statistics targets appear adequate'
     END
 FROM statistics_summary
@@ -340,11 +340,11 @@ UNION ALL
 SELECT 
     'CONFIGURATION RECOMMENDATION:',
     CASE 
-        WHEN default_stats_target < 100 THEN 
-            'Consider increasing default_statistics_target (current: ' || default_stats_target || ', recommend: 100-1000)'
-        WHEN default_stats_target > 1000 THEN 
-            'default_statistics_target is high (' || default_stats_target || ') - ensure ANALYZE performance is acceptable'
-        ELSE 'default_statistics_target (' || default_stats_target || ') appears reasonable'
+        WHEN default_stats_target < 100 THEN
+            'Consider increasing default_statistics_target (current: ' || default_stats_target::text || ', recommend: 100-1000)'
+        WHEN default_stats_target > 1000 THEN
+            'default_statistics_target is high (' || default_stats_target::text || ') - ensure ANALYZE performance is acceptable'
+        ELSE 'default_statistics_target (' || default_stats_target::text || ') appears reasonable'
     END
 FROM statistics_summary;
 

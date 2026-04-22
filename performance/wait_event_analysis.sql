@@ -144,16 +144,16 @@ BEGIN
         
         -- This would require custom wait event tracking
         -- For now, show basic query performance metrics
-        EXECUTE 'SELECT 
+        EXECUTE 'SELECT
             calls,
-            total_time,
-            mean_time,
-            stddev_time,
+            total_exec_time,
+            mean_exec_time,
+            stddev_exec_time,
             rows,
             LEFT(query, 80) || ''...'' AS query_snippet
-        FROM pg_stat_statements 
-        WHERE mean_time > 1000  -- queries taking more than 1 second on average
-        ORDER BY mean_time DESC 
+        FROM pg_stat_statements
+        WHERE mean_exec_time > 1000
+        ORDER BY mean_exec_time DESC
         LIMIT 10';
     ELSE
         RAISE NOTICE 'pg_stat_statements extension not available';

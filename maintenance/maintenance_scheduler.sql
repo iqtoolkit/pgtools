@@ -230,8 +230,8 @@ WITH maintenance_analysis AS (
 SELECT 
     'IMMEDIATE ACTIONS RECOMMENDED:' as category,
     CASE 
-        WHEN urgent_vacuum_count > 0 THEN 
-            'Run VACUUM on ' || urgent_vacuum_count || ' tables with >20% dead tuples immediately'
+        WHEN urgent_vacuum_count > 0 THEN
+            'Run VACUUM on ' || urgent_vacuum_count::text || ' tables with >20% dead tuples immediately'
         ELSE 'No urgent VACUUM operations needed'
     END as recommendation
 FROM maintenance_analysis
@@ -239,8 +239,8 @@ UNION ALL
 SELECT 
     'REGULAR MAINTENANCE:',
     CASE 
-        WHEN vacuum_count > 0 THEN 
-            'Schedule VACUUM for ' || vacuum_count || ' tables during maintenance window'
+        WHEN vacuum_count > 0 THEN
+            'Schedule VACUUM for ' || vacuum_count::text || ' tables during maintenance window'
         ELSE 'No additional VACUUM operations needed'
     END
 FROM maintenance_analysis
@@ -248,8 +248,8 @@ UNION ALL
 SELECT 
     'STATISTICS UPDATES:',
     CASE 
-        WHEN analyze_count > 0 THEN 
-            'Run ANALYZE on ' || analyze_count || ' tables to update query planner statistics'
+        WHEN analyze_count > 0 THEN
+            'Run ANALYZE on ' || analyze_count::text || ' tables to update query planner statistics'
         ELSE 'Table statistics are current'
     END
 FROM maintenance_analysis
@@ -260,7 +260,7 @@ SELECT
         WHEN autovacuum_enabled = 'off' THEN 
             'CRITICAL: Autovacuum is disabled - enable immediately!'
         WHEN autovacuum_workers < 3 AND vacuum_count > 10 THEN
-            'Consider increasing autovacuum_max_workers (current: ' || autovacuum_workers || ')'
+            'Consider increasing autovacuum_max_workers (current: ' || autovacuum_workers::text || ')'
         ELSE 'Autovacuum configuration appears adequate'
     END
 FROM maintenance_analysis;

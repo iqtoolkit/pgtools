@@ -206,7 +206,7 @@ SELECT
     END AS primary_recommendation,
     CASE 
         WHEN idle_conn > active_conn * 2 
-        THEN 'Suggested pool size: ' || GREATEST(active_conn + 2, 5) || ' connections per database'
+        THEN 'Suggested pool size: ' || GREATEST(active_conn + 2, 5)::text || ' connections per database'
         WHEN total_conn > max_conn * 0.8 
         THEN 'Consider PgBouncer with pool_mode=transaction for better efficiency'
         WHEN idle_tx_conn > 5 

@@ -428,11 +428,11 @@ UNION ALL
 SELECT 
     'CONNECTION RECOMMENDATIONS:',
     CASE 
-        WHEN max_connections > 1000 THEN 
-            'max_connections very high (' || max_connections || ') - strongly recommend connection pooling'
+        WHEN max_connections > 1000 THEN
+            'max_connections very high (' || max_connections::text || ') - strongly recommend connection pooling'
         WHEN max_connections > 200 THEN
-            'max_connections high (' || max_connections || ') - consider connection pooling'
-        ELSE 'max_connections appears reasonable (' || max_connections || ')'
+            'max_connections high (' || max_connections::text || ') - consider connection pooling'
+        ELSE 'max_connections appears reasonable (' || max_connections::text || ')'
     END
 FROM config_analysis
 UNION ALL

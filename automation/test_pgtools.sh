@@ -216,7 +216,6 @@ SQL_REQUIRES_SUPERUSER=(
 SQL_REQUIRES_EXTENSIONS=(
     "performance/query_performance_profiler.sql"
     "performance/wait_event_analysis.sql"
-    "monitoring/buffer_troubleshoot.sql"
 )
 
 # TimescaleDB-only files. Always skipped by the syntax test; covered separately
