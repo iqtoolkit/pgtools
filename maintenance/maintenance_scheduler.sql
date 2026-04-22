@@ -115,20 +115,20 @@ WITH index_bloat AS (
     SELECT 
         schemaname,
         relname,
-        indexname,
-        pg_size_pretty(pg_relation_size(schemaname||'.'||indexname)) as index_size,
-        pg_relation_size(schemaname||'.'||indexname) as index_size_bytes,
+        indexrelname as indexname,
+        pg_size_pretty(pg_relation_size(schemaname||'.'||indexrelname)) as index_size,
+        pg_relation_size(schemaname||'.'||indexrelname) as index_size_bytes,
         idx_scan,
         idx_tup_read,
         idx_tup_fetch,
         -- Estimate bloat (this is a simplified calculation)
         CASE 
             WHEN idx_scan = 0 THEN 'UNUSED'
-            WHEN pg_relation_size(schemaname||'.'||indexname) = 0 THEN 'EMPTY'
+            WHEN pg_relation_size(schemaname||'.'||indexrelname) = 0 THEN 'EMPTY'
             ELSE 'NORMAL'
         END as bloat_status
     FROM pg_stat_user_indexes
-    WHERE pg_relation_size(schemaname||'.'||indexname) > 10 * 1024 * 1024  -- >10MB
+    WHERE pg_relation_size(schemaname||'.'||indexrelname) > 10 * 1024 * 1024  -- >10MB
 )
 SELECT 
     schemaname,

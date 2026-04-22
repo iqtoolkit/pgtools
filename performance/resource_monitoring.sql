@@ -217,7 +217,7 @@ LIMIT 25;
 \echo '--- WAL AND CHECKPOINT STATISTICS ---'
 SELECT 
     'WAL Location' as metric,
-    pg_current_wal_lsn() as current_value,
+    pg_current_wal_lsn()::text as current_value,
     'Current WAL write location' as description
 UNION ALL
 SELECT 
@@ -234,18 +234,30 @@ SELECT
 
 -- Background writer, checkpointer, and checkpoint pressure stats
 \echo '--- BACKGROUND WRITER STATISTICS ---'
+WITH bgwriter_json AS (
+    SELECT to_jsonb(pg_stat_bgwriter) AS stats
+    FROM pg_stat_bgwriter
+)
 SELECT
-    checkpoints_timed,
-    checkpoints_req,
-    round(checkpoints_req::numeric / nullif(checkpoints_timed + checkpoints_req, 0) * 100, 2) AS req_pct,
-    checkpoint_write_time,
-    checkpoint_sync_time,
-    buffers_checkpoint,
-    buffers_clean,
-    buffers_backend,
-    maxwritten_clean,
-    buffers_backend_fsync
-FROM pg_stat_bgwriter;
+    COALESCE((stats ->> 'checkpoints_timed')::bigint, 0) AS checkpoints_timed,
+    COALESCE((stats ->> 'checkpoints_req')::bigint, 0) AS checkpoints_req,
+    round(
+        COALESCE((stats ->> 'checkpoints_req')::numeric, 0)
+        / nullif(
+            COALESCE((stats ->> 'checkpoints_timed')::numeric, 0)
+            + COALESCE((stats ->> 'checkpoints_req')::numeric, 0),
+            0
+        ) * 100,
+        2
+    ) AS req_pct,
+    COALESCE((stats ->> 'checkpoint_write_time')::numeric, 0) AS checkpoint_write_time,
+    COALESCE((stats ->> 'checkpoint_sync_time')::numeric, 0) AS checkpoint_sync_time,
+    COALESCE((stats ->> 'buffers_checkpoint')::bigint, 0) AS buffers_checkpoint,
+    COALESCE((stats ->> 'buffers_clean')::bigint, 0) AS buffers_clean,
+    COALESCE((stats ->> 'buffers_backend')::bigint, 0) AS buffers_backend,
+    COALESCE((stats ->> 'maxwritten_clean')::bigint, 0) AS maxwritten_clean,
+    COALESCE((stats ->> 'buffers_backend_fsync')::bigint, 0) AS buffers_backend_fsync
+FROM bgwriter_json;
 
 \echo ''
 
@@ -300,8 +312,14 @@ WITH resource_analysis AS (
         (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') as max_connections,
         (SELECT SUM(blks_hit) FROM pg_stat_database) as total_cache_hits,
         (SELECT SUM(blks_read) FROM pg_stat_database) as total_disk_reads,
-        (SELECT checkpoints_req FROM pg_stat_bgwriter) as checkpoint_requests,
-        (SELECT checkpoints_timed FROM pg_stat_bgwriter) as checkpoint_timed
+        (
+            SELECT COALESCE((to_jsonb(pg_stat_bgwriter) ->> 'checkpoints_req')::bigint, 0)
+            FROM pg_stat_bgwriter
+        ) as checkpoint_requests,
+        (
+            SELECT COALESCE((to_jsonb(pg_stat_bgwriter) ->> 'checkpoints_timed')::bigint, 0)
+            FROM pg_stat_bgwriter
+        ) as checkpoint_timed
 )
 SELECT 
     CASE 
