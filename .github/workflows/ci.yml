@@ -1,6 +1,8 @@
 name: CI
 permissions:
   contents: read
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
   push:
@@ -37,7 +39,7 @@ jobs:
           --health-retries 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Show PostgreSQL version under test
         run: echo "Running CI against PostgreSQL ${{ matrix.postgres_version }}"
