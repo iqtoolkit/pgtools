@@ -148,6 +148,13 @@ ORDER BY
 
 -- Query patterns analysis (requires pg_stat_statements)
 -- This helps identify frequently used WHERE conditions that might benefit from indexes
+SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') THEN 1
+    ELSE 0
+END AS has_pg_stat_statements
+\gset
+
+\if :has_pg_stat_statements
 SELECT 
     calls AS execution_count,
     total_exec_time AS total_execution_time_ms,
@@ -183,6 +190,11 @@ ORDER BY
     (calls * mean_exec_time) DESC,  -- Total time impact
     calls DESC
 LIMIT 20;
+\else
+\echo 'Skipping query pattern analysis: pg_stat_statements extension is not installed.'
+\echo 'Need to install extension pg_stat_statements.'
+\echo 'Install with: CREATE EXTENSION pg_stat_statements;'
+\endif
 
 -- Tables that might benefit from partial indexes
 WITH table_analysis AS (
