@@ -26,6 +26,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --name pgtools-postgres-ci
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
@@ -53,6 +54,26 @@ jobs:
       - name: Enable pg_stat_statements
         run: |
           psql -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+          psql -c "SELECT extname FROM pg_extension WHERE extname = 'pg_stat_statements';"
+
+      - name: Configure preload and restart PostgreSQL
+        run: |
+          psql -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';"
+          docker restart pgtools-postgres-ci
+
+          for i in {1..30}; do
+            if pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; then
+              break
+            fi
+            sleep 2
+          done
+
+          if ! pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; then
+            echo "PostgreSQL did not become ready after restart" >&2
+            exit 1
+          fi
+
+          psql -tA -c "SHOW shared_preload_libraries;" | grep -q "pg_stat_statements"
           psql -c "SELECT extname FROM pg_extension WHERE extname = 'pg_stat_statements';"
 
       - name: ShellCheck all shell scripts
