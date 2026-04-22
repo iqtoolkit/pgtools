@@ -109,7 +109,8 @@ done
 # Stop daemon function
 stop_daemon() {
     if [[ -f "$PID_FILE" ]]; then
-        local pid=$(cat "$PID_FILE")
+        local pid
+        pid=$(cat "$PID_FILE")
         if kill -0 "$pid" 2>/dev/null; then
             kill "$pid"
             rm -f "$PID_FILE"
@@ -126,7 +127,8 @@ stop_daemon() {
 # Show daemon status
 show_status() {
     if [[ -f "$PID_FILE" ]]; then
-        local pid=$(cat "$PID_FILE")
+        local pid
+        pid=$(cat "$PID_FILE")
         if kill -0 "$pid" 2>/dev/null; then
             success "PostgreSQL Prometheus exporter is running (PID: $pid, Port: $PORT)"
         else
@@ -329,7 +331,8 @@ run_socat_server() {
 
 # HTTP server using netcat (basic implementation)
 run_netcat_server() {
-    local temp_response=$(mktemp)
+    local temp_response
+    temp_response=$(mktemp)
     
     while true; do
         {
@@ -355,7 +358,8 @@ test_connection() {
     
     if psql -c "SELECT version();" > /dev/null 2>&1; then
         success "Database connection successful"
-        local version=$(psql -t -c "SELECT version();" | xargs)
+        local version
+        version=$(psql -t -c "SELECT version();" | xargs)
         log "PostgreSQL version: $version"
     else
         error "Cannot connect to PostgreSQL database"
@@ -402,7 +406,8 @@ main() {
     
     if [[ "$DAEMON_MODE" == "true" ]]; then
         if [[ -f "$PID_FILE" ]]; then
-            local existing_pid=$(cat "$PID_FILE")
+            local existing_pid
+            existing_pid=$(cat "$PID_FILE")
             if kill -0 "$existing_pid" 2>/dev/null; then
                 error "Exporter already running with PID: $existing_pid"
                 exit 1

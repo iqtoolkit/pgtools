@@ -240,7 +240,8 @@ test_connection() {
 
 # Get tables needing vacuum
 get_vacuum_candidates() {
-    local temp_file=$(mktemp)
+    local temp_file
+    temp_file=$(mktemp)
     
     local schema_filter=""
     if [[ -n "$SCHEMA_PATTERN" ]]; then
@@ -252,11 +253,13 @@ get_vacuum_candidates() {
     local table_filter=""
     if [[ -n "$TARGET_TABLES" ]]; then
         # Convert comma-separated patterns to SQL LIKE conditions
+        # shellcheck disable=SC2206  # intentional word-split of comma-separated list
         local patterns=(${TARGET_TABLES//,/ })
         local conditions=()
         for pattern in "${patterns[@]}"; do
             conditions+=("tablename LIKE '${pattern}'")
         done
+        # shellcheck disable=SC2124  # join-with-IFS idiom uses [*] by design
         table_filter="AND ($(IFS=' OR '; echo "${conditions[*]}"))"
     fi
     
@@ -287,7 +290,8 @@ get_vacuum_candidates() {
 
 # Get tables needing analyze
 get_analyze_candidates() {
-    local temp_file=$(mktemp)
+    local temp_file
+    temp_file=$(mktemp)
     
     local schema_filter=""
     if [[ -n "$SCHEMA_PATTERN" ]]; then
@@ -298,16 +302,18 @@ get_analyze_candidates() {
     
     local table_filter=""
     if [[ -n "$TARGET_TABLES" ]]; then
+        # shellcheck disable=SC2206  # intentional word-split of comma-separated list
         local patterns=(${TARGET_TABLES//,/ })
         local conditions=()
         for pattern in "${patterns[@]}"; do
             conditions+=("tablename LIKE '${pattern}'")
         done
+        # shellcheck disable=SC2124  # join-with-IFS idiom uses [*] by design
         table_filter="AND ($(IFS=' OR '; echo "${conditions[*]}"))"
     fi
-    
+
     psql -t -c "
-    SELECT 
+    SELECT
         schemaname,
         tablename,
         n_tup_ins + n_tup_upd + n_tup_del as total_changes,
@@ -356,16 +362,19 @@ execute_maintenance() {
     
     # Check if table is too large and should be skipped
     if [[ "$SKIP_LARGE_TABLES" == "true" ]]; then
-        local table_size_bytes=$(psql -t -c "SELECT pg_total_relation_size('$full_table_name');" 2>/dev/null | xargs)
-        local size_threshold=$(parse_size "$LARGE_TABLE_SIZE")
-        
+        local table_size_bytes
+        local size_threshold
+        table_size_bytes=$(psql -t -c "SELECT pg_total_relation_size('$full_table_name');" 2>/dev/null | xargs)
+        size_threshold=$(parse_size "$LARGE_TABLE_SIZE")
+
         if [[ "$table_size_bytes" -gt "$size_threshold" ]]; then
-            warn "Skipping large table: $full_table_name ($(pg_size_pretty $table_size_bytes))"
+            warn "Skipping large table: $full_table_name ($(pg_size_pretty "$table_size_bytes"))"
             return 0
         fi
     fi
-    
-    local start_time=$(date +%s)
+
+    local start_time
+    start_time=$(date +%s)
     
     if [[ "$DRY_RUN" == "true" ]]; then
         log "DRY RUN: Would execute $operation on $full_table_name ($reason)"
@@ -377,8 +386,9 @@ execute_maintenance() {
     case "$operation" in
         "VACUUM")
             if psql -c "VACUUM (VERBOSE) $full_table_name;" 2>/dev/null; then
-                local end_time=$(date +%s)
-                local duration=$((end_time - start_time))
+                local end_time duration
+                end_time=$(date +%s)
+                duration=$((end_time - start_time))
                 success "VACUUM completed on $full_table_name (${duration}s)"
             else
                 error "VACUUM failed on $full_table_name"
@@ -387,8 +397,9 @@ execute_maintenance() {
             ;;
         "ANALYZE")
             if psql -c "ANALYZE (VERBOSE) $full_table_name;" 2>/dev/null; then
-                local end_time=$(date +%s)
-                local duration=$((end_time - start_time))
+                local end_time duration
+                end_time=$(date +%s)
+                duration=$((end_time - start_time))
                 success "ANALYZE completed on $full_table_name (${duration}s)"
             else
                 error "ANALYZE failed on $full_table_name"
@@ -398,8 +409,9 @@ execute_maintenance() {
         "VACUUM FULL")
             warn "Executing VACUUM FULL on $full_table_name - this will lock the table!"
             if psql -c "VACUUM (FULL, VERBOSE) $full_table_name;" 2>/dev/null; then
-                local end_time=$(date +%s)
-                local duration=$((end_time - start_time))
+                local end_time duration
+                end_time=$(date +%s)
+                duration=$((end_time - start_time))
                 success "VACUUM FULL completed on $full_table_name (${duration}s)"
             else
                 error "VACUUM FULL failed on $full_table_name"
@@ -408,8 +420,9 @@ execute_maintenance() {
             ;;
         "REINDEX")
             if psql -c "REINDEX (VERBOSE) TABLE $full_table_name;" 2>/dev/null; then
-                local end_time=$(date +%s)
-                local duration=$((end_time - start_time))
+                local end_time duration
+                end_time=$(date +%s)
+                duration=$((end_time - start_time))
                 success "REINDEX completed on $full_table_name (${duration}s)"
             else
                 error "REINDEX failed on $full_table_name"
@@ -560,7 +573,7 @@ main() {
         "full-vacuum")
             warn "VACUUM FULL is a blocking operation that requires exclusive table locks"
             if [[ "$DRY_RUN" != "true" ]]; then
-                read -p "Are you sure you want to continue? (yes/no): " confirm
+                read -rp "Are you sure you want to continue? (yes/no): " confirm
                 if [[ "$confirm" != "yes" ]]; then
                     log "Operation cancelled"
                     exit 0

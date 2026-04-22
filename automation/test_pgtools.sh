@@ -111,6 +111,36 @@ if [[ -f "$CONFIG_FILE" ]]; then
     source "$CONFIG_FILE"
 fi
 
+# Environment-driven skip guards (populated in main() before syntax tests run).
+# Scripts that require superuser or specific extensions are skipped when the
+# CI/test database cannot support them, rather than reporting a false failure.
+SKIP_SUPERUSER_SCRIPTS="false"
+SKIP_EXTENSION_SCRIPTS="false"
+
+detect_environment_capabilities() {
+    # Superuser gate — permission_audit.sql and switch_pg_wal_file.sql need it.
+    local is_super
+    if is_super="$(psql -tA -c "SELECT current_setting('is_superuser', true);" 2>/dev/null)"; then
+        if [[ "$(echo "$is_super" | tr -d '[:space:]')" != "on" ]]; then
+            SKIP_SUPERUSER_SCRIPTS="true"
+        fi
+    else
+        SKIP_SUPERUSER_SCRIPTS="true"
+    fi
+
+    # Extension gate — any script that depends on pg_stat_statements /
+    # pg_buffercache is skipped when neither is installed as an extension.
+    local ext_count
+    ext_count="$(psql -tA -c "SELECT count(*) FROM pg_extension WHERE extname IN ('pg_stat_statements','pg_buffercache');" 2>/dev/null | tr -d '[:space:]')"
+    if [[ -z "$ext_count" || "$ext_count" == "0" ]]; then
+        SKIP_EXTENSION_SCRIPTS="true"
+    fi
+
+    if [[ "$VERBOSE" == "true" ]]; then
+        log "Environment detection: SKIP_SUPERUSER_SCRIPTS=$SKIP_SUPERUSER_SCRIPTS SKIP_EXTENSION_SCRIPTS=$SKIP_EXTENSION_SCRIPTS"
+    fi
+}
+
 # Test execution framework
 run_test() {
     local test_name="$1"
@@ -159,30 +189,99 @@ test_extensions_available() {
     return 0  # Don't fail if extensions missing
 }
 
-# Syntax validation tests
-test_sql_syntax() {
-    local sql_files=(
-        "$PGTOOLS_ROOT/backup/backup_validation.sql"
-        "$PGTOOLS_ROOT/security/permission_audit.sql"
-        "$PGTOOLS_ROOT/monitoring/connection_pools.sql"
-        "$PGTOOLS_ROOT/optimization/missing_indexes.sql"
-        "$PGTOOLS_ROOT/administration/partition_management.sql"
-    )
-    
-    for sql_file in "${sql_files[@]}"; do
-        if [[ -f "$sql_file" ]]; then
-            if ! psql -f "$sql_file" --dry-run > /dev/null 2>&1; then
-                # Dry run not supported, try syntax check
-                if ! psql -c "\\i $sql_file" > /dev/null 2>&1; then
-                    error "SQL syntax error in: $sql_file"
-                    return 1
-                fi
-            fi
-        else
-            warn "SQL file not found: $sql_file"
+# Directories that contribute .sql files to the syntax test corpus. Kept as an
+# allowlist rather than a recursive find so we can intentionally exclude folders
+# (e.g. timescaledb/, which only runs under a TimescaleDB-enabled cluster).
+SQL_TEST_DIRS=(
+    "$PGTOOLS_ROOT/administration"
+    "$PGTOOLS_ROOT/backup"
+    "$PGTOOLS_ROOT/configuration"
+    "$PGTOOLS_ROOT/maintenance"
+    "$PGTOOLS_ROOT/monitoring"
+    "$PGTOOLS_ROOT/optimization"
+    "$PGTOOLS_ROOT/performance"
+    "$PGTOOLS_ROOT/security"
+    "$PGTOOLS_ROOT/troubleshooting"
+)
+
+# Files that require a superuser connection. Skipped when SKIP_SUPERUSER_SCRIPTS
+# is true so limited-role CI runs don't report false failures.
+SQL_REQUIRES_SUPERUSER=(
+    "security/permission_audit.sql"
+    "maintenance/switch_pg_wal_file.sql"
+)
+
+# Files that require pg_stat_statements or pg_buffercache to be installed as
+# extensions. Skipped when SKIP_EXTENSION_SCRIPTS is true.
+SQL_REQUIRES_EXTENSIONS=(
+    "performance/query_performance_profiler.sql"
+    "performance/wait_event_analysis.sql"
+    "monitoring/buffer_troubleshoot.sql"
+)
+
+# TimescaleDB-only files. Always skipped by the syntax test; covered separately
+# when the test runs against a TimescaleDB-enabled instance.
+SQL_REQUIRES_TIMESCALEDB=(
+    "administration/NonHypertables.sql"
+)
+
+_sql_list_contains() {
+    # $1 = relative path (e.g. "security/permission_audit.sql")
+    # $2..N = entries to check against
+    local needle="$1"; shift
+    local entry
+    for entry in "$@"; do
+        if [[ "$entry" == "$needle" ]]; then
+            return 0
         fi
     done
-    return 0
+    return 1
+}
+
+# Syntax validation tests — iterates every .sql file in SQL_TEST_DIRS and runs
+# it with ON_ERROR_STOP=1 so any parse/bind error becomes a non-zero exit.
+test_sql_syntax() {
+    local failed=0
+    local dir
+    local sql_file
+    local rel_path
+
+    for dir in "${SQL_TEST_DIRS[@]}"; do
+        if [[ ! -d "$dir" ]]; then
+            warn "SQL directory not found: $dir"
+            continue
+        fi
+
+        while IFS= read -r -d '' sql_file; do
+            rel_path="${sql_file#"$PGTOOLS_ROOT"/}"
+
+            if _sql_list_contains "$rel_path" "${SQL_REQUIRES_TIMESCALEDB[@]}"; then
+                [[ "$VERBOSE" == "true" ]] && log "Skipping TimescaleDB-only script: $rel_path"
+                continue
+            fi
+
+            if [[ "$SKIP_SUPERUSER_SCRIPTS" == "true" ]] \
+                && _sql_list_contains "$rel_path" "${SQL_REQUIRES_SUPERUSER[@]}"; then
+                [[ "$VERBOSE" == "true" ]] && log "Skipping superuser-only script (not superuser): $rel_path"
+                continue
+            fi
+
+            if [[ "$SKIP_EXTENSION_SCRIPTS" == "true" ]] \
+                && _sql_list_contains "$rel_path" "${SQL_REQUIRES_EXTENSIONS[@]}"; then
+                [[ "$VERBOSE" == "true" ]] && log "Skipping extension-dependent script (pg_stat_statements/pg_buffercache missing): $rel_path"
+                continue
+            fi
+
+            if ! psql -v ON_ERROR_STOP=1 -f "$sql_file" > /dev/null 2>&1; then
+                error "SQL execution error in: $rel_path"
+                failed=1
+            elif [[ "$VERBOSE" == "true" ]]; then
+                log "OK: $rel_path"
+            fi
+        done < <(find "$dir" -maxdepth 2 -type f -name '*.sql' -print0)
+    done
+
+    return "$failed"
 }
 
 test_automation_scripts() {
@@ -305,7 +404,11 @@ generate_test_report() {
     echo "Tests run: $TESTS_RUN"
     echo "Passed: $TESTS_PASSED"
     echo "Failed: $TESTS_FAILED"
-    echo "Success rate: $(( TESTS_PASSED * 100 / TESTS_RUN ))%"
+    if [[ "$TESTS_RUN" -gt 0 ]]; then
+        echo "Success rate: $(( TESTS_PASSED * 100 / TESTS_RUN ))%"
+    else
+        echo "Success rate: n/a (no tests matched the current pattern/filters)"
+    fi
     echo "==============================================="
     
     if [[ "$TESTS_FAILED" -gt 0 ]]; then
@@ -333,6 +436,10 @@ main() {
     run_test "connection_basic" test_database_connection
     run_test "connection_permissions" test_database_permissions
     run_test "connection_extensions" test_extensions_available
+
+    # Detect environment once; cheaper than doing it per-file, and the skip
+    # flags need to be populated before the syntax sweep starts.
+    detect_environment_capabilities
     
     # Syntax tests
     run_test "syntax_sql_files" test_sql_syntax

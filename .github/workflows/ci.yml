@@ -50,15 +50,25 @@ jobs:
           echo "PostgreSQL did not become ready in time" >&2
           exit 1
 
-      - name: ShellCheck automation scripts
-        run: shellcheck automation/*.sh
+      - name: Enable pg_stat_statements
+        run: |
+          psql -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+          psql -c "SELECT extname FROM pg_extension WHERE extname = 'pg_stat_statements';"
 
-      # Todo: enable full test suite when stable
-      # - name: Fast automation test suite
-      #   run: ./automation/test_pgtools.sh --fast
+      - name: ShellCheck all shell scripts
+        run: |
+          shellcheck \
+            automation/*.sh \
+            integration/*.sh \
+            configuration/*.sh \
+            maintenance/*.sh \
+            scripts/*.sh
 
-      # - name: HOT checklist JSON validation
-      #   run: ./automation/run_hot_update_report.sh --format json --database "$PGDATABASE" --stdout
+      - name: Fast automation test suite
+        run: ./automation/test_pgtools.sh --fast
 
-      # - name: HOT checklist text validation
-      #   run: ./automation/run_hot_update_report.sh --format text --database "$PGDATABASE" --stdout
+      - name: HOT checklist JSON validation
+        run: ./automation/run_hot_update_report.sh --format json --database "$PGDATABASE" --stdout
+
+      - name: HOT checklist text validation
+        run: ./automation/run_hot_update_report.sh --format text --database "$PGDATABASE" --stdout

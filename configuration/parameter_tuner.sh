@@ -157,11 +157,13 @@ detect_system_ram() {
     # Try to detect RAM on macOS and Linux
     if command -v sysctl > /dev/null 2>&1; then
         # macOS
-        local ram_bytes=$(sysctl -n hw.memsize 2>/dev/null || echo "0")
+        local ram_bytes
+        ram_bytes=$(sysctl -n hw.memsize 2>/dev/null || echo "0")
         echo "$ram_bytes"
     elif [[ -f /proc/meminfo ]]; then
         # Linux
-        local ram_kb=$(grep '^MemTotal:' /proc/meminfo | awk '{print $2}')
+        local ram_kb
+        ram_kb=$(grep '^MemTotal:' /proc/meminfo | awk '{print $2}')
         echo $((ram_kb * 1024))
     else
         echo "0"
@@ -170,7 +172,8 @@ detect_system_ram() {
 
 # Get current database parameters
 get_current_parameters() {
-    local temp_file=$(mktemp)
+    local temp_file
+    temp_file=$(mktemp)
     
     psql -t -c "
     SELECT 
