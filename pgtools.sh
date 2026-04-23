@@ -67,11 +67,14 @@ Commands:
   bloat             Identify table and index bloat. (sql/diagnostics/bloat.sql)
   replication       Monitor replication lag and status. (sql/diagnostics/replication.sql)
   disk-usage        Show disk usage by table and index. (sql/diagnostics/disk-usage.sql)
+  cache-hit         Show table and index cache hit rates. (sql/diagnostics/cache-hit.sql)
 
   # TimescaleDB Diagnostics
   chunk-stats       Show chunk count and size per hypertable. (sql/timescale/chunk-stats.sql)
   compression-stats Show compression ratio and job status per hypertable. (sql/timescale/compression-stats.sql)
   cagg-stats        Show continuous aggregate health and refresh policy status. (sql/timescale/cagg-stats.sql)
+  job-errors        Show recent errors from background jobs. (sql/timescale/job-errors.sql)
+  uncompressed-chunks Show chunks that are old but not compressed. (sql/timescale/uncompressed-chunks.sql)
 
   # Administration
   permissions       Audit user and role permissions. (sql/admin/permissions.sql)
@@ -123,7 +126,7 @@ main() {
     local connection_string="$2"
 
     case "${command}" in
-        locks|activity|top-queries|bloat|replication|disk-usage|chunk-stats|compression-stats|cagg-stats|permissions|ownership)
+        locks|activity|top-queries|bloat|replication|disk-usage|cache-hit|chunk-stats|compression-stats|cagg-stats|job-errors|uncompressed-chunks|permissions|ownership)
             run_sql "${command}" "${connection_string}"
             ;;
         *)

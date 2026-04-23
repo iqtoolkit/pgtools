@@ -1,46 +1,29 @@
-# Getting Started with pgtools
+# Getting Started with pgtools: The First Responder Toolbelt
 
-Welcome to **pgtools** - the comprehensive PostgreSQL administration toolkit! This guide will help you get up and running quickly, whether you're a database administrator, developer, or DevOps engineer working with PostgreSQL.
+Welcome to **pgtools**, the "First Responder" Support Toolbelt for safely diagnosing PostgreSQL and TimescaleDB databases. This guide will help you get up and running quickly.
 
 ## 📋 Table of Contents
 
 - [Prerequisites](#prerequisites)
-- [Quick Installation](#quick-installation)
-- [First Steps](#first-steps)
-- [Essential Scripts](#essential-scripts)
-- [Common Workflows](#common-workflows)
-- [Setting Up Automation](#setting-up-automation)
-- [Troubleshooting](#troubleshooting)
-- [Next Steps](#next-steps)
+- [Installation](#installation)
+- [Core Usage](#core-usage)
+- [Example Workflows](#example-workflows)
+- [Available Commands](#available-commands)
 
 ## Prerequisites
 
-### System Requirements
-- **PostgreSQL**: Version 14 or higher (tested against 14, 15, 16, 17, and 18)
-- **Operating System**: Linux, macOS, or Windows with appropriate shell environment
-- **Shell**: Bash, Zsh, or compatible shell for automation scripts
-- **Tools**: `psql` command-line client, Git (for installation)
+- **Shell**: A `bash`-compatible shell.
+- **Tools**: `psql` (the PostgreSQL command-line client) and `git`.
+- **Database Access**: A valid PostgreSQL connection string or service name to connect to the target database. Most scripts require privileges equivalent to the `pg_monitor` role.
 
-### Database Access
-- **Privileges**: Most scripts require `pg_monitor` role or superuser privileges
-- **Connection**: Ability to connect to your PostgreSQL database(s)
-- **Extensions**: Some scripts benefit from `pg_stat_statements` and `pg_buffercache`
-
-### Knowledge Level
-- **Basic SQL**: Understanding of PostgreSQL queries and administration
-- **Command Line**: Comfort with terminal/command prompt usage
-- **PostgreSQL Concepts**: Familiarity with databases, tables, indexes, and basic administration
-
-## Quick Installation
-
-### Method 1: Git Clone (Recommended)
+## Installation
 ```bash
 # Clone the repository
 git clone https://github.com/thepostgresguy/pgtools.git
 cd pgtools
 
-# Make scripts executable
-chmod +x automation/*.sh maintenance/*.sh integration/*.sh configuration/*.sh
+# Make the main script executable
+chmod +x pgtools.sh
 ```
 
 ### Method 2: Download ZIP

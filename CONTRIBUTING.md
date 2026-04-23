@@ -1,30 +1,28 @@
 # Contributing to pgtools
 
-We welcome contributions from the PostgreSQL community! This document provides comprehensive guidelines for contributing to the pgtools project.
+We welcome contributions from the PostgreSQL and TimescaleDB communities! This document provides guidelines for contributing to the `pgtools` "First Responder" Toolbelt.
 
-## 📋 Quick Start
+The goal of this project is to create a safe, reliable, and easy-to-use set of diagnostic scripts for support engineers and DBAs to use when triaging production database issues.
 
-### Prerequisites
-- PostgreSQL knowledge (administration, performance tuning, or development)
-- Basic understanding of SQL and shell scripting
-- Familiarity with Git and GitHub workflows
-- Access to PostgreSQL test environment for script validation
+## Core Principles
 
-### Getting Started
+All contributions must adhere to a strict **"Zero-Harm"** policy.
+
+1.  **Read-Only**: Scripts must *never* perform write operations. No `CREATE TABLE`, `ALTER`, `UPDATE`, `DELETE`, or `TRUNCATE`. Temporary tables should be avoided unless absolutely necessary and lightweight.
+2.  **Lightweight**: Queries must be efficient and avoid expensive operations that could impact a heavily loaded customer system.
+3.  **No Heavy Dependencies**: We stick to `bash` and `psql`. No Python, Go, or other languages that require complex installation.
+4.  **Safety First**: All queries are executed via the `pgtools.sh` wrapper, which enforces a short `statement_timeout` and `lock_timeout`.
+
+## Getting Started
+
 ```bash
 # Fork the repository on GitHub
 # Clone your fork
 git clone https://github.com/your-username/pgtools.git
 cd pgtools
 
-# Create development branch
+# Create a feature branch
 git checkout -b feature/your-feature-name
-
-# Test current scripts in your environment
-./automation/test_pgtools.sh --database your_test_db
-
-# Optional: run the full local pre-commit bundle
-./scripts/precommit_checks.sh --database your_test_db
 ```
 
 ## Types of Contributions
