@@ -16,7 +16,7 @@ Welcome to **pgtools** - the comprehensive PostgreSQL administration toolkit! Th
 ## Prerequisites
 
 ### System Requirements
-- **PostgreSQL**: Version 10 or higher (15+ recommended)
+- **PostgreSQL**: Version 14 or higher (tested against 14, 15, 16, 17, and 18)
 - **Operating System**: Linux, macOS, or Windows with appropriate shell environment
 - **Shell**: Bash, Zsh, or compatible shell for automation scripts
 - **Tools**: `psql` command-line client, Git (for installation)
@@ -59,7 +59,21 @@ chmod +x automation/*.sh maintenance/*.sh integration/*.sh configuration/*.sh
 
 # Check script availability
 ls -la monitoring/*.sql
+
+# Run quick validation (requires local PostgreSQL)
+./automation/test_pgtools.sh --fast
 ```
+
+### Verify PostgreSQL Compatibility
+This toolkit has been tested against PostgreSQL 14 through 18. Check your PostgreSQL version:
+
+```bash
+psql --version
+```
+
+If you're running PostgreSQL 13 or earlier, some scripts may not function as expected. Consider upgrading or testing in a development environment first.
+
+For more details on script requirements and compatibility, refer to the README files in each directory.
 
 ## First Steps
 
@@ -329,6 +343,19 @@ psql -d your_database -c "GRANT pg_monitor TO your_monitoring_user;"
 # For pre-15 legacy versions, grant specific permissions:
 psql -d your_database -c "GRANT SELECT ON ALL TABLES IN SCHEMA pg_catalog TO your_monitoring_user;"
 ```
+
+### PostgreSQL Version-Specific Notes
+
+**Verified Support**: PostgreSQL 14, 15, 16, 17, and 18 (tested in CI)
+
+- **PostgreSQL 14-15**: Full compatibility; all core features available
+- **PostgreSQL 16-18**: Recommended for new deployments; all scripts validated
+- **PostgreSQL < 14**: Not tested; some scripts may not function as expected
+
+**Known Limitations**:
+- Some security audit scripts may need privilege verification on non-superuser accounts
+- Extension preload/reload sequence matters in CI environments
+- Dynamic privilege checks vary by PostgreSQL version
 
 ### Getting Help
 
