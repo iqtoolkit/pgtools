@@ -1,5 +1,103 @@
 # pgtools — Implementation Plan (A+ Roadmap)
 
+## IQToolkit Analyzer Integration
+
+pgtools is designed to be consumed by [iqtoolkit-analyzer](../iqtoolkit-analyzer) via its `scripts` subsystem (`iqtoolkit_analyzer/scripts/`). The subsystem already handles sync, discovery, and execution — pgtools just needs to be declared as a library in the user's `.iqtoolkit-analyzer.yml`.
+
+### Step 1 — Declare pgtools as a script library
+
+Add to `.iqtoolkit-analyzer.yml`:
+
+```yaml
+script_libraries:
+  postgresql:
+    repo: https://github.com/thepostgresguy/pgtools
+    branch: main
+    executor: psql
+```
+
+### Step 2 — Sync and run
+
+```bash
+# Pull the repo into ~/.iqtoolkit/script_libraries/postgresql/
+iqtoolkit-analyzer scripts sync --library postgresql
+
+# See every available script grouped by category
+iqtoolkit-analyzer scripts list --library postgresql
+
+# Run a script against a live database
+iqtoolkit-analyzer scripts run postgresql monitoring/bloating \
+    -c "postgresql://user:pass@localhost/mydb"
+
+# Run the HOT update checklist
+iqtoolkit-analyzer scripts run postgresql optimization/hot_update_optimization_checklist \
+    -c "postgresql://user:pass@localhost/mydb"
+
+# Run resource monitoring
+iqtoolkit-analyzer scripts run postgresql performance/resource_monitoring \
+    -c "postgresql://user:pass@localhost/mydb"
+```
+
+The runner dispatches `.sql` files via `psql -f`, streams output to stdout, and returns a non-zero exit code on failure — consistent with how the analyzer handles all other script libraries (sqlserver-toolkit, mysql-tools, mongo-toolkit).
+
+### How the subsystem works (relevant files in iqtoolkit-analyzer)
+
+| File | Role |
+|------|------|
+| `iqtoolkit_analyzer/scripts/sync.py` | `git clone --depth 1` or `git pull --ff-only` into `~/.iqtoolkit/script_libraries/` |
+| `iqtoolkit_analyzer/scripts/registry.py` | Walks the cache dir, discovers `.sql` / `.sh` files, resolves executor per extension |
+| `iqtoolkit_analyzer/scripts/runner.py` | Dispatches to `psql`, `mysql`, `sqlcmd`, `bash`, `node` based on `ScriptEntry.executor` |
+| `iqtoolkit_analyzer/cli/scripts_commands.py` | Click CLI: `scripts sync`, `scripts list`, `scripts run` |
+| `iqtoolkit_analyzer/config.py:ScriptLibraryConfig` | Parses `script_libraries` block from `.iqtoolkit-analyzer.yml` |
+
+### Deeper integration opportunities (future work)
+
+**1. AI analysis of pgtools output**
+The analyzer has an LLM layer (`cli/_ai_helpers.py` → `LLMClient` → `LLMProviderAdapter`). pgtools script output can be piped into the analyzer's AI layer for natural language recommendations. For example: run `resource_monitoring.sql`, capture output, pass to LLM with a prompt: *"Given these PostgreSQL metrics, what are the top 3 actions to take?"*
+
+**2. Trending into AnalysisResultV2**
+Phase 7 of the pgtools roadmap (trending/baselines) should output results that conform to `iqtoolkit-contracts/AnalysisResultV2` so they appear in the analyzer's unified report format. The `pgtools_monitoring.snapshots` table becomes a data source the analyzer can query.
+
+**3. `pgtools check-wraparound` as a health gate**
+Once Phase 6 adds `monitoring/wraparound_risk.sql`, it should be wired into the analyzer's `pg health` command as a mandatory check — wraparound age surfaced alongside connection counts and cache hit ratio.
+
+**4. Shell scripts via the runner**
+`automation/run_hot_update_report.sh` and `automation/pgtools_health_check.sh` already work through the bash executor. The runner calls `bash script.sh` — no changes needed to pgtools shell scripts.
+
+### What pgtools must NOT do for this integration to stay clean
+
+- Do not add Python, Node, or any runtime dependency — keep everything as plain SQL and bash so the `psql` / `bash` executors handle it without special setup.
+- Do not hardcode connection strings inside scripts — all connection config flows in from the analyzer via `psql -c "connection_string" -f script.sql`.
+- The `bin/pgtools` CLI (Phase 3) and `iqtoolkit-analyzer scripts run` are complementary, not competing — `bin/pgtools` is for standalone use, the analyzer integration is for managed/multi-database use.
+
+---
+
+## Honest Assessment
+
+**Good reference library, not yet a production toolkit.**
+
+### What it does well
+- **Coverage is broad.** Monitoring, bloat, locks, replication, HOT updates, missing indexes, config analysis, partition management, query profiling — the right topics are all here.
+- **The annotations are excellent.** `bloating.sql` has sample output, interpretation guidance, threshold ladders, and autovacuum tuning examples inline.
+- **The SQL is correct.** Queries hit the right catalog views (`pg_stat_user_tables`, `pg_stat_bgwriter`, `pg_stat_statements`) and compute the right ratios.
+
+### Where it falls short
+- **All snapshots, no trending.** Can't tell if things are getting better or worse.
+- **Silent privilege failures.** Insufficient permissions return empty results, not errors. Looks like "no problems" when the real answer is "you can't see the data."
+- **No wraparound monitoring.** The single most dangerous PostgreSQL failure mode has no dedicated script.
+- **No inactive replication slot detection.** A slot with no consumer will fill your disk.
+- **FK index detection has false positives.** String matching on `indexdef` is fragile.
+- **CI is broken.** Three test steps are commented out, `psql --dry-run` doesn't exist.
+- **No CLI.** You have to know the directory layout and file names to use it.
+
+### Compared to alternatives
+pgBadger, pganalyze, and Postgres checkup do trending, historical comparison, and automated recommendations out of the box. pgtools doesn't compete with those yet. What pgtools does better: transparent SQL you can read, audit, and run anywhere without an agent, a SaaS account, or a log parser — a real advantage in locked-down environments.
+
+### Bottom line
+Good enough to use today as a **diagnostic reference** — run a script when something is on fire and it'll point you in the right direction. Not production-grade until Phase 1 (CI fixed), Phase 3 (CLI), and Phase 6 (missing scripts) are done. The bones are solid. The roadmap is the right one.
+
+---
+
 ## Goal
 
 Elevate pgtools from a well-documented script library to a production-grade, installable tool with a stable test suite, integration coverage, a proper CLI, and a repeatable release process.
