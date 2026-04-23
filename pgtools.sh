@@ -66,6 +66,7 @@ Commands:
   top-queries       Show most time-consuming queries (requires pg_stat_statements). (sql/diagnostics/top-queries.sql)
   bloat             Identify table and index bloat. (sql/diagnostics/bloat.sql)
   replication       Monitor replication lag and status. (sql/diagnostics/replication.sql)
+  disk-usage        Show disk usage by table and index. (sql/diagnostics/disk-usage.sql)
 
   # TimescaleDB Diagnostics
   chunk-stats       Show chunk count and size per hypertable. (sql/timescale/chunk-stats.sql)
@@ -122,7 +123,7 @@ main() {
     local connection_string="$2"
 
     case "${command}" in
-        locks|activity|top-queries|bloat|replication|chunk-stats|compression-stats|cagg-stats|permissions|ownership)
+        locks|activity|top-queries|bloat|replication|disk-usage|chunk-stats|compression-stats|cagg-stats|permissions|ownership)
             run_sql "${command}" "${connection_string}"
             ;;
         *)
