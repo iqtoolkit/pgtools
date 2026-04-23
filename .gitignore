@@ -1,3 +1,6 @@
 .idea
 .idea/*
 .venv
+findings.md
+*.log
+CLAUDE.md
