@@ -24,6 +24,9 @@
  *   - Essential for disaster recovery planning
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', NULL); END $preflight$;
+
 -- Database size and growth metrics for backup planning
 SELECT 
     datname AS database_name,

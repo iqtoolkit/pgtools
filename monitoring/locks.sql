@@ -66,6 +66,9 @@
  *   - Locks held by idle in transaction sessions
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', NULL); END $preflight$;
+
 SELECT
     l.locktype,
     l.database,

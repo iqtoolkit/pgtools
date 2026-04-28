@@ -23,6 +23,9 @@
  *   - Can be resource-intensive, avoid running frequently on busy systems
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check(NULL, 'pg_buffercache'); END $preflight$;
+
 -- Overall cache hit ratio
 SELECT 
     sum(heap_blks_read) AS heap_read,

@@ -25,6 +25,9 @@
  *   - Results should be reviewed by security team
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', NULL); END $preflight$;
+
 -- Database-level role and permission overview
 SELECT 
     r.rolname AS role_name,

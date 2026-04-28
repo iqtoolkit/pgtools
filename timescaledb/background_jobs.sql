@@ -25,7 +25,8 @@
  *   - Background worker exhaustion is the most common cause of stalled compression
  *     and stale continuous aggregates
  */
-
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check(NULL, 'timescaledb'); END $preflight$;
 \echo '=== Jobs With Failures or Non-Success Status ==='
 SELECT
     proc_name,

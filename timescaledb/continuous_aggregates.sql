@@ -24,6 +24,9 @@
  *     since the time column name varies per aggregate
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check(NULL, 'timescaledb'); END $preflight$;
+
 \echo '=== Continuous Aggregate Overview ==='
 SELECT
     view_name,

@@ -26,6 +26,9 @@
  *   - See background_jobs.sql for worker saturation diagnostics
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check(NULL, 'timescaledb'); END $preflight$;
+
 \echo '=== Compression Settings and Policy Status ==='
 SELECT
     ht.hypertable_name,

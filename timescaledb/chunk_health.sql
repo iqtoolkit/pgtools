@@ -25,6 +25,9 @@
  *   - Chunk count is the #1 silent cause of slow query planning
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check(NULL, 'timescaledb'); END $preflight$;
+
 \echo '=== Chunk Count and Size Per Hypertable ==='
 SELECT
     hypertable_name,

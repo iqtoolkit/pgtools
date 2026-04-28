@@ -148,6 +148,9 @@
  *   - Keep standby servers synchronized with primary configuration changes
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', NULL); END $preflight$;
+
 -- Replication slots and lag
 SELECT
     slot_name,

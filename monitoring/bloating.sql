@@ -84,6 +84,9 @@
  *   - After bulk operations: Immediate bloat check
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', NULL); END $preflight$;
+
 -- Table bloat estimation
 SELECT
     schemaname || '.' || relname AS table_name,

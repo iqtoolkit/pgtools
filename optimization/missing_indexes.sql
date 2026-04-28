@@ -25,6 +25,9 @@
  *   - Review recommendations with actual query plans
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', 'pg_stat_statements'); END $preflight$;
+
 -- Tables with high sequential scan activity (potential index candidates)
 SELECT 
     schemaname || '.' || relname AS table_name,

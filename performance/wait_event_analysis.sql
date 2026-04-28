@@ -15,6 +15,9 @@
  * Date: 2024-10-25
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', NULL); END $preflight$;
+
 \echo '================================================='
 \echo 'PostgreSQL Wait Event Analysis'
 \echo '================================================='

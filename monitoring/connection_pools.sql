@@ -26,6 +26,9 @@
  *   - Should be run regularly on high-traffic systems
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', NULL); END $preflight$;
+
 -- Connection overview and limit utilization
 SELECT 
     COUNT(*) AS total_connections,

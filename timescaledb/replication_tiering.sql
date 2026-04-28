@@ -23,6 +23,9 @@
  *   - For general replication slot monitoring, see monitoring/replication.sql
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', 'timescaledb'); END $preflight$;
+
 \echo '=== Tiger Lake / Tiered Storage Replication Slots ==='
 SELECT
     slot_name,

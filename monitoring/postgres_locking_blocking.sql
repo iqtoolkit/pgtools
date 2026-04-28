@@ -25,6 +25,9 @@
  *   - Empty result means no blocking is occurring
  */
 
+\ir ../lib/preflight.sql
+DO $preflight$ BEGIN PERFORM pg_temp.pgtools_check('pg_monitor', NULL); END $preflight$;
+
 SELECT
     blocking_locks.pid AS blocking_pid,
     blocking_activity.usename AS blocking_user,
