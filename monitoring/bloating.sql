@@ -95,6 +95,6 @@ SELECT
     last_vacuum,
     last_autovacuum
 FROM pg_stat_user_tables
--- WHERE n_dead_tup > 0
+WHERE n_dead_tup > 1000
 ORDER BY n_dead_tup DESC
 LIMIT 50;
