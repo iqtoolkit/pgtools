@@ -20,6 +20,27 @@ After a few minutes, your documentation will be available at:
 https://gmartinez-dbai.github.io/pgtools/
 ```
 
+## Preflight Check System
+
+Most pgtools SQL scripts include a preflight check that runs before any queries execute. It validates that the current user has the required role and that any required extension is installed. If either check fails the script exits immediately with a clear error message.
+
+The shared implementation is in `lib/preflight.sql`. It creates a session-scoped temporary function (`pg_temp.pgtools_check`) that is automatically dropped when the psql session ends — nothing is persisted in the database.
+
+**Granting the minimum required role:**
+```sql
+GRANT pg_monitor TO your_monitoring_user;
+```
+
+**Checks used per script type:**
+
+| Script group | Role required | Extension required |
+|---|---|---|
+| Most monitoring / maintenance scripts | `pg_monitor` | — |
+| `monitoring/buffer_troubleshoot.sql` | — | `pg_buffercache` |
+| `optimization/missing_indexes.sql` | `pg_monitor` | `pg_stat_statements` |
+| `timescaledb/*.sql` | — | `timescaledb` |
+| `timescaledb/replication_tiering.sql` | `pg_monitor` | `timescaledb` |
+
 ## Documentation Structure
 
 The documentation is organized as follows:

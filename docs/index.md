@@ -34,7 +34,18 @@ This toolkit provides battle-tested SQL scripts for PostgreSQL database administ
 
 - PostgreSQL 15+ (tested baseline)
 - Appropriate database privileges (typically `pg_monitor` role or superuser)
-- `psql` command-line tool or any PostgreSQL client
+- `psql` command-line tool (required for scripts that use `\ir` and `DO $preflight$`)
+
+### Preflight checks
+
+Most scripts in this toolkit include an automatic preflight check that runs before any queries. The check validates that the required role and/or extension are available for the current session. If a requirement is not met the script exits immediately with a descriptive error message instead of silently returning empty or partial output.
+
+The shared logic lives in `lib/preflight.sql` and is sourced with `\ir` at the top of each script. Nothing is written to the database — the check function is session-scoped and drops itself when the connection closes.
+
+To grant the minimum required role:
+```sql
+GRANT pg_monitor TO your_user;
+```
 
 ## Quick Start
 
@@ -154,8 +165,9 @@ psql -U username -d database_name -f locks.sql
 **missing_indexes.sql**
 - Identifies potentially beneficial indexes based on query patterns
 - Analyzes sequential scan activity and unused indexes
-- Detects foreign key columns missing indexes
+- Detects foreign key columns missing indexes using exact catalog joins (`pg_index` + `pg_attribute`) — no substring false-positives
 - Provides index optimization recommendations
+- Requires: `pg_stat_statements` extension, `pg_monitor` role
 
 ### 📦 Backup & Recovery Scripts
 **backup_validation.sql**

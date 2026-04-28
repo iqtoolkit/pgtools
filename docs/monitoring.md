@@ -102,6 +102,8 @@ SELECT pg_cancel_backend(1234);
 - VACUUM scheduling optimization
 - Performance degradation investigation
 
+> **Note:** Output is filtered to tables with more than 1,000 dead tuples (`n_dead_tup > 1000`). Tables with negligible bloat are excluded to keep results actionable.
+
 **Sample Output:**
 ```
 schemaname | tablename | size_gb | dead_tuples | live_tuples | bloat_ratio | recommended_action
@@ -130,6 +132,7 @@ VACUUM FULL public.sessions;
 
 #### `buffer_troubleshoot.sql`
 **Purpose:** Shared buffer pool analysis and cache efficiency monitoring
+**Requires:** `pg_buffercache` extension (`CREATE EXTENSION pg_buffercache;`)
 **Use Cases:**
 - Memory configuration optimization
 - I/O performance analysis
