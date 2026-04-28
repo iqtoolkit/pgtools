@@ -36,8 +36,8 @@ SELECT
     r.rolreplication AS replication_privilege,
     r.rolbypassrls AS bypasses_rls,
     r.rolconnlimit AS connection_limit,
-    CASE r.rolpassword 
-        WHEN NULL THEN 'NO PASSWORD SET'
+    CASE 
+        WHEN r.rolpassword IS NULL THEN 'NO PASSWORD SET'
         ELSE 'PASSWORD SET'
     END AS password_status,
     r.rolvaliduntil AS password_expiry,
